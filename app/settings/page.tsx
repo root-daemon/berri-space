@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useUser, SignOutButton } from '@clerk/nextjs';
 import { AppHeader } from '@/components/app-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,8 +15,19 @@ import {
 import { User, Bell, Lock, LogOut, Moon, Sun, Monitor } from 'lucide-react';
 
 export default function SettingsPage() {
+  const { user, isLoaded } = useUser();
   const [theme, setTheme] = useState('system');
   const [emailNotifications, setEmailNotifications] = useState(true);
+
+  // Format the account creation date
+  const formatDate = (date: Date | undefined) => {
+    if (!date) return 'Unknown';
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(date);
+  };
 
   return (
     <>
@@ -44,12 +56,15 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between py-3 border-b border-border/20">
                   <div>
                     <p className="text-sm font-500 text-foreground">Name</p>
-                    <p className="text-xs text-muted-foreground mt-1 font-400">John Doe</p>
+                    <p className="text-xs text-muted-foreground mt-1 font-400">
+                      {isLoaded ? (user?.fullName || 'Not set') : 'Loading...'}
+                    </p>
                   </div>
                   <Button
                     variant="outline"
                     size="sm"
                     className="border-border/20 hover:bg-muted/50 transition-all duration-200 font-400 text-xs bg-transparent"
+                    onClick={() => user?.update && window.open('https://accounts.clerk.dev/user', '_blank')}
                   >
                     Edit
                   </Button>
@@ -59,19 +74,25 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-sm font-500 text-foreground">Email</p>
                     <p className="text-xs text-muted-foreground mt-1 font-400">
-                      john@company.com
+                      {isLoaded ? (user?.primaryEmailAddress?.emailAddress || 'Not set') : 'Loading...'}
                     </p>
                   </div>
-                  <Badge className="bg-green-500/10 text-green-700 border-0 text-xs font-400">
-                    Verified
-                  </Badge>
+                  {user?.primaryEmailAddress?.verification?.status === 'verified' ? (
+                    <Badge className="bg-green-500/10 text-green-700 border-0 text-xs font-400">
+                      Verified
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-yellow-500/10 text-yellow-700 border-0 text-xs font-400">
+                      Unverified
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between py-3">
                   <div>
                     <p className="text-sm font-500 text-foreground">Account Created</p>
                     <p className="text-xs text-muted-foreground mt-1 font-400">
-                      January 15, 2024
+                      {isLoaded ? formatDate(user?.createdAt ? new Date(user.createdAt) : undefined) : 'Loading...'}
                     </p>
                   </div>
                 </div>
@@ -174,13 +195,14 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-sm font-500 text-foreground">Password</p>
                     <p className="text-xs text-muted-foreground mt-1 font-400">
-                      Last changed 3 months ago
+                      Manage your password
                     </p>
                   </div>
                   <Button
                     variant="outline"
                     size="sm"
                     className="border-border/20 hover:bg-muted/50 transition-all duration-200 font-400 text-xs bg-transparent"
+                    onClick={() => window.open('https://accounts.clerk.dev/user/security', '_blank')}
                   >
                     Change
                   </Button>
@@ -190,13 +212,14 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-sm font-500 text-foreground">Active Sessions</p>
                     <p className="text-xs text-muted-foreground mt-1 font-400">
-                      2 devices signed in
+                      Manage your active sessions
                     </p>
                   </div>
                   <Button
                     variant="outline"
                     size="sm"
                     className="border-border/20 hover:bg-muted/50 transition-all duration-200 font-400 text-xs bg-transparent"
+                    onClick={() => window.open('https://accounts.clerk.dev/user/security', '_blank')}
                   >
                     Manage
                   </Button>
@@ -206,28 +229,31 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-sm font-500 text-foreground">Two-Factor Auth</p>
                     <p className="text-xs text-muted-foreground mt-1 font-400">
-                      Not enabled
+                      {user?.twoFactorEnabled ? 'Enabled' : 'Not enabled'}
                     </p>
                   </div>
                   <Button
                     variant="outline"
                     size="sm"
                     className="border-border/20 hover:bg-muted/50 transition-all duration-200 font-400 text-xs bg-transparent"
+                    onClick={() => window.open('https://accounts.clerk.dev/user/security', '_blank')}
                   >
-                    Enable
+                    {user?.twoFactorEnabled ? 'Manage' : 'Enable'}
                   </Button>
                 </div>
               </div>
             </div>
 
             {/* Sign Out */}
-            <Button
-              variant="outline"
-              className="w-full border-destructive/30 hover:bg-destructive/10 text-destructive transition-all duration-200 font-400 gap-2 bg-transparent"
-            >
-              <LogOut className="w-4 h-4" />
-              Sign Out
-            </Button>
+            <SignOutButton redirectUrl="/">
+              <Button
+                variant="outline"
+                className="w-full border-destructive/30 hover:bg-destructive/10 text-destructive transition-all duration-200 font-400 gap-2 bg-transparent"
+              >
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </Button>
+            </SignOutButton>
           </div>
         </div>
       </div>

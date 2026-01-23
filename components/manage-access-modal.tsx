@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useUser } from '@clerk/nextjs';
+import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -18,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 
 interface AccessUser {
   id: string;
@@ -26,6 +26,7 @@ interface AccessUser {
   email: string;
   role: 'admin' | 'editor' | 'viewer';
   type: 'user' | 'team';
+  isOwner?: boolean;
 }
 
 interface ManageAccessModalProps {
@@ -38,14 +39,7 @@ interface ManageAccessModalProps {
   };
 }
 
-const mockAccessUsers: AccessUser[] = [
-  {
-    id: '1',
-    name: 'John Doe',
-    email: 'john@example.com',
-    role: 'admin',
-    type: 'user',
-  },
+const mockOtherUsers: AccessUser[] = [
   {
     id: '2',
     name: 'Jane Smith',
@@ -63,9 +57,25 @@ const mockAccessUsers: AccessUser[] = [
 ];
 
 export function ManageAccessModal({ isOpen, onClose, item }: ManageAccessModalProps) {
-  const [accessUsers, setAccessUsers] = useState(mockAccessUsers);
+  const { user, isLoaded } = useUser();
+  const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<'viewer' | 'editor' | 'admin'>('viewer');
+
+  // Initialize access users with current user as owner/admin
+  useEffect(() => {
+    if (isLoaded && user) {
+      const currentUserAccess: AccessUser = {
+        id: user.id,
+        name: user.fullName || 'You',
+        email: user.primaryEmailAddress?.emailAddress || '',
+        role: 'admin',
+        type: 'user',
+        isOwner: true,
+      };
+      setAccessUsers([currentUserAccess, ...mockOtherUsers]);
+    }
+  }, [isLoaded, user]);
 
   const handleAddAccess = () => {
     if (!newEmail) return;
@@ -84,10 +94,18 @@ export function ManageAccessModal({ isOpen, onClose, item }: ManageAccessModalPr
   };
 
   const handleRemoveAccess = (id: string) => {
+    // Don't allow removing the owner
+    const userToRemove = accessUsers.find(u => u.id === id);
+    if (userToRemove?.isOwner) return;
+
     setAccessUsers(accessUsers.filter((user) => user.id !== id));
   };
 
   const handleRoleChange = (id: string, newRole: 'admin' | 'editor' | 'viewer') => {
+    // Don't allow changing owner's role
+    const userToChange = accessUsers.find(u => u.id === id);
+    if (userToChange?.isOwner) return;
+
     setAccessUsers(
       accessUsers.map((user) => (user.id === id ? { ...user, role: newRole } : user))
     );
@@ -108,34 +126,47 @@ export function ManageAccessModal({ isOpen, onClose, item }: ManageAccessModalPr
           <div>
             <h3 className="text-xs font-600 text-muted-foreground uppercase tracking-wide mb-3">Current Access</h3>
             <div className="space-y-2 max-h-64 overflow-y-auto">
-              {accessUsers.map((user) => (
+              {accessUsers.map((accessUser) => (
                 <div
-                  key={user.id}
+                  key={accessUser.id}
                   className="flex items-center justify-between p-3.5 bg-muted/30 rounded-lg border border-border/20 hover:bg-muted/50 transition-colors duration-200"
                 >
                   <div className="flex-1">
-                    <p className="text-sm font-400 text-foreground">{user.name}</p>
-                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                    <p className="text-sm font-400 text-foreground">
+                      {accessUser.name}
+                      {accessUser.isOwner && (
+                        <span className="ml-2 text-xs text-muted-foreground">(Owner)</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{accessUser.email}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Select value={user.role} onValueChange={(role: any) => handleRoleChange(user.id, role)}>
-                      <SelectTrigger className="w-24 text-xs border-border/40 hover:border-primary/30 transition-colors duration-200">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="viewer">Viewer</SelectItem>
-                        <SelectItem value="editor">Editor</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-all duration-200"
-                      onClick={() => handleRemoveAccess(user.id)}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
+                    {accessUser.isOwner ? (
+                      <span className="text-xs text-muted-foreground px-3 py-1.5 bg-muted/50 rounded border border-border/20">
+                        Admin
+                      </span>
+                    ) : (
+                      <>
+                        <Select value={accessUser.role} onValueChange={(role: 'admin' | 'editor' | 'viewer') => handleRoleChange(accessUser.id, role)}>
+                          <SelectTrigger className="w-24 text-xs border-border/40 hover:border-primary/30 transition-colors duration-200">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="viewer">Viewer</SelectItem>
+                            <SelectItem value="editor">Editor</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-all duration-200"
+                          onClick={() => handleRemoveAccess(accessUser.id)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -155,7 +186,7 @@ export function ManageAccessModal({ isOpen, onClose, item }: ManageAccessModalPr
                 className="bg-muted/40 border-border/40 focus-visible:bg-muted focus-visible:border-primary/30 transition-all duration-200"
               />
               <div className="flex gap-2">
-                <Select value={newRole} onValueChange={(value: any) => setNewRole(value)}>
+                <Select value={newRole} onValueChange={(value: 'viewer' | 'editor' | 'admin') => setNewRole(value)}>
                   <SelectTrigger className="flex-1 border-border/40 hover:border-primary/30 transition-colors duration-200">
                     <SelectValue />
                   </SelectTrigger>
