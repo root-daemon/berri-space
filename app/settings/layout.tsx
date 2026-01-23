@@ -1,11 +1,15 @@
 import React from "react"
 import { AppSidebar } from '@/components/app-sidebar';
+import { getDbUser } from '@/lib/auth';
 
-export default function SettingsLayout({
+export default async function SettingsLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Automatically sync the user to the database when they access protected routes
+  await getDbUser();
+
   return (
     <div className="flex h-screen overflow-hidden">
       <AppSidebar />
