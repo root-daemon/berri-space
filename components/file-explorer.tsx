@@ -1,0 +1,276 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import {
+  Folder,
+  FileText,
+  FileSpreadsheet,
+  ImageIcon,
+  MoreVertical,
+  Grid,
+  List as ListIcon,
+  Lock,
+  Users,
+  LockOpen,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { ManageAccessModal } from './manage-access-modal';
+import { EmptyState } from './empty-state';
+
+interface FileItem {
+  id: string;
+  name: string;
+  type: 'folder' | 'file';
+  owner?: string;
+  lastModified?: string;
+  access: 'admin' | 'editor' | 'viewer';
+  fileType?: 'pdf' | 'doc' | 'xls' | 'image' | 'other';
+}
+
+const mockItems: FileItem[] = [
+  {
+    id: '1',
+    name: 'Q1 Reports',
+    type: 'folder',
+    access: 'admin',
+  },
+  {
+    id: '2',
+    name: 'Budget Spreadsheet',
+    type: 'file',
+    fileType: 'xls',
+    owner: 'John Doe',
+    lastModified: '2 days ago',
+    access: 'editor',
+  },
+  {
+    id: '3',
+    name: 'Project Proposal',
+    type: 'file',
+    fileType: 'pdf',
+    owner: 'Jane Smith',
+    lastModified: '1 week ago',
+    access: 'viewer',
+  },
+  {
+    id: '4',
+    name: 'Design Assets',
+    type: 'folder',
+    access: 'editor',
+  },
+  {
+    id: '5',
+    name: 'Team Meeting Notes',
+    type: 'file',
+    fileType: 'doc',
+    owner: 'John Doe',
+    lastModified: 'Today',
+    access: 'admin',
+  },
+];
+
+export function FileExplorer() {
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
+  const [showAccessModal, setShowAccessModal] = useState(false);
+
+  const getFileIcon = (item: FileItem) => {
+    if (item.type === 'folder') {
+      return <Folder className="w-7 h-7 text-primary" />;
+    }
+
+    switch (item.fileType) {
+      case 'pdf':
+        return <FileText className="w-7 h-7 text-red-500/70" />;
+      case 'xls':
+        return <FileSpreadsheet className="w-7 h-7 text-green-500/70" />;
+      case 'image':
+        return <ImageIcon className="w-7 h-7 text-blue-500/70" />;
+      default:
+        return <FileText className="w-7 h-7 text-muted-foreground" />;
+    }
+  };
+
+  const getAccessIcon = (access: string) => {
+    if (access === 'viewer') return <Lock className="w-3 h-3" />;
+    if (access === 'editor') return <LockOpen className="w-3 h-3" />;
+    return <Users className="w-3 h-3" />;
+  };
+
+  const handleManageAccess = (item: FileItem) => {
+    setSelectedItem(item);
+    setShowAccessModal(true);
+  };
+
+  if (mockItems.length === 0) {
+    return <EmptyState />;
+  }
+
+  return (
+    <>
+      {/* View Toggle */}
+      <div className="flex justify-end gap-1 mb-8">
+        <Button
+          variant={viewMode === 'grid' ? 'default' : 'ghost'}
+          size="icon"
+          onClick={() => setViewMode('grid')}
+          className={`transition-all ${viewMode === 'grid' ? 'bg-primary hover:bg-primary/90' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
+        >
+          <Grid className="w-4 h-4" />
+        </Button>
+        <Button
+          variant={viewMode === 'list' ? 'default' : 'ghost'}
+          size="icon"
+          onClick={() => setViewMode('list')}
+          className={`transition-all ${viewMode === 'list' ? 'bg-primary hover:bg-primary/90' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
+        >
+          <ListIcon className="w-4 h-4" />
+        </Button>
+      </div>
+
+      {/* Grid View */}
+      {viewMode === 'grid' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {mockItems.map((item) => {
+            const itemLink = item.type === 'folder' ? `/drive/folder/${item.id}` : `/drive/file/${item.id}`;
+            return (
+              <Link
+                key={item.id}
+                href={itemLink}
+                className="bg-card rounded-xl p-5 hover:shadow-lg transition-all duration-200 ease-out hover:scale-105 hover:-translate-y-0.5 cursor-pointer group border border-transparent hover:border-primary/10 hover:bg-primary/2 active:scale-95 active:transition-transform active:duration-75 block"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  handleContextMenu(item);
+                }}
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1 transform group-hover:scale-110 transition-transform duration-200">
+                    {getFileIcon(item)}
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 h-8 w-8 hover:bg-muted/50"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem>Open</DropdownMenuItem>
+                      <DropdownMenuItem>Rename</DropdownMenuItem>
+                      <DropdownMenuItem>Move</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => handleManageAccess(item)}>
+                        Manage Access
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                <h3 className="font-500 text-foreground truncate mb-1 text-sm leading-snug">{item.name}</h3>
+
+                {item.owner && (
+                  <p className="text-xs text-muted-foreground mb-3">{item.owner}</p>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <Badge variant="secondary" className="text-xs gap-1.5 px-2 py-0.5 bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full">
+                    {getAccessIcon(item.access)}
+                    <span className="font-400 text-xs">{item.access}</span>
+                  </Badge>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
+      {/* List View */}
+      {viewMode === 'list' && (
+        <div className="bg-card border border-transparent rounded-xl overflow-hidden shadow-sm">
+          <div className="hidden md:grid grid-cols-5 gap-4 px-6 py-3 bg-muted/20 border-b border-border/20 text-sm font-500 text-muted-foreground">
+            <div>Name</div>
+            <div>Owner</div>
+            <div>Last Modified</div>
+            <div>Access</div>
+            <div className="text-right">Actions</div>
+          </div>
+
+          {mockItems.map((item) => {
+            const itemLink = item.type === 'folder' ? `/drive/folder/${item.id}` : `/drive/file/${item.id}`;
+            return (
+              <Link
+                key={item.id}
+                href={itemLink}
+                className="grid grid-cols-1 md:grid-cols-5 gap-4 px-6 py-3.5 border-b border-border/20 hover:bg-primary/3 transition-colors duration-150 group items-center last:border-b-0 active:bg-primary/5 active:transition-colors active:duration-75"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="group-hover:scale-110 transition-transform duration-200">
+                    {getFileIcon(item)}
+                  </div>
+                  <span className="font-400 text-foreground text-sm">{item.name}</span>
+                </div>
+                <div className="text-sm text-muted-foreground hidden md:block">
+                  {item.owner || '-'}
+                </div>
+                <div className="text-sm text-muted-foreground hidden md:block">
+                  {item.lastModified || '-'}
+                </div>
+                <Badge variant="secondary" className="text-xs gap-1.5 w-fit bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full px-2 py-0.5">
+                  {getAccessIcon(item.access)}
+                  <span className="font-400 text-xs">{item.access}</span>
+                </Badge>
+                <div className="flex justify-end">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted/50">
+                        <MoreVertical className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem>Open</DropdownMenuItem>
+                      <DropdownMenuItem>Rename</DropdownMenuItem>
+                      <DropdownMenuItem>Move</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => handleManageAccess(item)}>
+                        Manage Access
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
+      {selectedItem && (
+        <ManageAccessModal
+          isOpen={showAccessModal}
+          onClose={() => setShowAccessModal(false)}
+          item={selectedItem}
+        />
+      )}
+    </>
+  );
+}
+
+function handleContextMenu(item: FileItem) {
+  // Right-click context menu handler
+  console.log('Context menu for:', item.name);
+}
