@@ -15,7 +15,22 @@ export default async function DriveLayout({
 }) {
   // Automatically sync the user to the database when they access protected routes
   // This ensures new users are created in the DB after signup
-  await getDbUser();
+  try {
+    await getDbUser();
+  } catch (error) {
+    // Log errors instead of silently failing
+    // getDbUser() catches AuthenticationError and returns null, so any error here is unexpected
+    if (error instanceof Error) {
+      console.error("[DriveLayout] Error syncing user to database:", {
+        message: error.message,
+        stack: error.stack,
+      });
+    } else {
+      console.error("[DriveLayout] Unknown error syncing user to database:", error);
+    }
+    // Re-throw to surface unexpected errors
+    throw error;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden">

@@ -22,6 +22,7 @@ export class AuthenticationError extends Error {
 /**
  * Syncs a Clerk user to the database.
  * Creates a new DB user if one doesn't exist, or updates the existing record.
+ * For new users, also creates a default organization and team.
  *
  * This operation is idempotent - safe to call multiple times.
  *
@@ -35,41 +36,219 @@ async function syncUserToDatabase(
   email: string,
   name: string | null
 ): Promise<DbUser> {
+  // Uses service_role key via getServerSupabaseClient() to bypass RLS policies.
+  // This is required to create users, organizations, and teams without permission checks.
   const supabase = getServerSupabaseClient();
 
-  // Use upsert to handle both create and update in one atomic operation
-  // This is idempotent - running it multiple times has the same effect
-  const { data, error } = await supabase
+  // First, check if user already exists
+  const { data: existingUser, error: checkError } = await supabase
     .from("users")
-    .upsert(
-      {
-        clerk_user_id: clerkUserId,
-        email,
-        name,
-      },
-      {
-        onConflict: "clerk_user_id",
-        // Update email and name on conflict (they may have changed in Clerk)
-      }
-    )
-    .select("*")
+    .select("id, clerk_user_id, email, name, created_at, updated_at")
+    .eq("clerk_user_id", clerkUserId)
     .single();
 
-  if (error) {
+  if (checkError && checkError.code !== "PGRST116") {
+    // PGRST116 is "no rows returned" which is expected for new users
+    console.error("[syncUserToDatabase] Error checking for existing user:", {
+      clerkUserId,
+      error: checkError.message,
+      code: checkError.code,
+    });
     throw new AuthenticationError(
-      `Failed to sync user to database: ${error.message}`,
+      `Failed to check for existing user: ${checkError.message}`,
       "DB_SYNC_FAILED"
     );
   }
 
-  if (!data) {
+  if (existingUser) {
+    // User exists - update email/name if changed
+    const needsUpdate =
+      existingUser.email !== email || existingUser.name !== name;
+
+    if (needsUpdate) {
+      console.log("[syncUserToDatabase] Updating existing user:", {
+        userId: existingUser.id,
+        clerkUserId,
+      });
+      const { data: updatedUser, error: updateError } = await supabase
+        .from("users")
+        .update({ email, name })
+        .eq("id", existingUser.id)
+        .select("id, clerk_user_id, email, name, created_at, updated_at")
+        .single();
+
+      if (updateError) {
+        console.error("[syncUserToDatabase] Failed to update user:", {
+          userId: existingUser.id,
+          error: updateError.message,
+          code: updateError.code,
+        });
+        throw new AuthenticationError(
+          `Failed to update user: ${updateError.message}`,
+          "DB_SYNC_FAILED"
+        );
+      }
+
+      console.log("[syncUserToDatabase] User updated successfully:", {
+        userId: updatedUser.id,
+      });
+      return updatedUser as DbUser;
+    }
+
+    return existingUser as DbUser;
+  }
+
+  // New user - create user, organization, and team
+  console.log("[syncUserToDatabase] Creating new user and setup:", {
+    clerkUserId,
+    email,
+    name,
+  });
+
+  // Step 1: Create the user
+  const { data: newUser, error: userError } = await supabase
+    .from("users")
+    .insert({
+      clerk_user_id: clerkUserId,
+      email,
+      name,
+    })
+    .select("id, clerk_user_id, email, name, created_at, updated_at")
+    .single();
+
+  if (userError || !newUser) {
+    console.error("[syncUserToDatabase] Failed to create user:", {
+      clerkUserId,
+      error: userError?.message,
+      code: userError?.code,
+    });
     throw new AuthenticationError(
-      "User sync succeeded but no data returned",
+      `Failed to create user: ${userError?.message || "Unknown error"}`,
       "DB_SYNC_FAILED"
     );
   }
 
-  return data as DbUser;
+  console.log("[syncUserToDatabase] User created:", { userId: newUser.id });
+
+  // Step 2: Create a personal organization for the user
+  const orgName = name ? `${name}'s Workspace` : "My Workspace";
+  const { data: org, error: orgError } = await supabase
+    .from("organizations")
+    .insert({ name: orgName })
+    .select("id")
+    .single();
+
+  if (orgError || !org) {
+    console.error("[syncUserToDatabase] Failed to create organization:", {
+      userId: newUser.id,
+      error: orgError?.message,
+      code: orgError?.code,
+    });
+    // Cleanup: delete the user we just created
+    const cleanupError = await supabase.from("users").delete().eq("id", newUser.id);
+    if (cleanupError.error) {
+      console.error("[syncUserToDatabase] Failed to cleanup user after org creation failure:", {
+        userId: newUser.id,
+        error: cleanupError.error.message,
+      });
+    }
+    throw new AuthenticationError(
+      `Failed to create organization: ${orgError?.message || "Unknown error"}`,
+      "DB_SYNC_FAILED"
+    );
+  }
+
+  console.log("[syncUserToDatabase] Organization created:", { orgId: org.id });
+
+  // Step 3: Add user as super_admin of the organization
+  const { error: memberError } = await supabase
+    .from("organization_members")
+    .insert({
+      organization_id: org.id,
+      user_id: newUser.id,
+      role: "super_admin",
+    });
+
+  if (memberError) {
+    console.error("[syncUserToDatabase] Failed to create organization membership:", {
+      userId: newUser.id,
+      orgId: org.id,
+      error: memberError.message,
+      code: memberError.code,
+    });
+    // Cleanup
+    await supabase.from("organizations").delete().eq("id", org.id);
+    await supabase.from("users").delete().eq("id", newUser.id);
+    throw new AuthenticationError(
+      `Failed to create organization membership: ${memberError.message}`,
+      "DB_SYNC_FAILED"
+    );
+  }
+
+  console.log("[syncUserToDatabase] Organization membership created");
+
+  // Step 4: Create a default team in the organization
+  const { data: team, error: teamError } = await supabase
+    .from("teams")
+    .insert({
+      organization_id: org.id,
+      name: "Personal",
+    })
+    .select("id")
+    .single();
+
+  if (teamError || !team) {
+    console.error("[syncUserToDatabase] Failed to create team:", {
+      userId: newUser.id,
+      orgId: org.id,
+      error: teamError?.message,
+      code: teamError?.code,
+    });
+    // Cleanup
+    await supabase.from("organization_members").delete().eq("user_id", newUser.id);
+    await supabase.from("organizations").delete().eq("id", org.id);
+    await supabase.from("users").delete().eq("id", newUser.id);
+    throw new AuthenticationError(
+      `Failed to create team: ${teamError?.message || "Unknown error"}`,
+      "DB_SYNC_FAILED"
+    );
+  }
+
+  console.log("[syncUserToDatabase] Team created:", { teamId: team.id });
+
+  // Step 5: Add user to the team
+  const { error: teamMemberError } = await supabase
+    .from("team_members")
+    .insert({
+      team_id: team.id,
+      user_id: newUser.id,
+    });
+
+  if (teamMemberError) {
+    console.error("[syncUserToDatabase] Failed to create team membership:", {
+      userId: newUser.id,
+      teamId: team.id,
+      error: teamMemberError.message,
+      code: teamMemberError.code,
+    });
+    // Cleanup
+    await supabase.from("teams").delete().eq("id", team.id);
+    await supabase.from("organization_members").delete().eq("user_id", newUser.id);
+    await supabase.from("organizations").delete().eq("id", org.id);
+    await supabase.from("users").delete().eq("id", newUser.id);
+    throw new AuthenticationError(
+      `Failed to create team membership: ${teamMemberError.message}`,
+      "DB_SYNC_FAILED"
+    );
+  }
+
+  console.log("[syncUserToDatabase] Team membership created - setup complete:", {
+    userId: newUser.id,
+    orgId: org.id,
+    teamId: team.id,
+  });
+
+  return newUser as DbUser;
 }
 
 /**
@@ -166,6 +345,15 @@ export async function getDbUser(): Promise<DbUser | null> {
 }
 
 /**
+ * Alias for requireDbUser().
+ * Gets the current authenticated user from the database.
+ *
+ * @throws {AuthenticationError} If the user is not authenticated or sync fails
+ * @returns The database user record
+ */
+export const getCurrentUser = requireDbUser;
+
+/**
  * Gets a database user by their Clerk user ID.
  * Does NOT sync - only queries existing records.
  *
@@ -182,7 +370,7 @@ export async function getDbUserByClerkId(
 
   const { data, error } = await supabase
     .from("users")
-    .select("*")
+    .select("id, clerk_user_id, email, name, created_at, updated_at")
     .eq("clerk_user_id", clerkUserId)
     .single();
 
@@ -211,7 +399,7 @@ export async function getDbUserById(userId: string): Promise<DbUser | null> {
 
   const { data, error } = await supabase
     .from("users")
-    .select("*")
+    .select("id, clerk_user_id, email, name, created_at, updated_at")
     .eq("id", userId)
     .single();
 
