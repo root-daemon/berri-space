@@ -2,56 +2,29 @@
 
 import React from "react"
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, FormEvent } from 'react';
 import { AppHeader } from '@/components/app-header';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { FileText, Send, AlertCircle, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
-
-interface Message {
-  id: string;
-  type: 'user' | 'ai';
-  content: string;
-  timestamp: Date;
-}
-
-const mockMessages: Message[] = [
-  {
-    id: '1',
-    type: 'user',
-    content: 'Can you summarize the Q1 financial results?',
-    timestamp: new Date('2024-02-15T14:30:00'),
-  },
-  {
-    id: '2',
-    type: 'ai',
-    content:
-      'Based on the Financial Report Q1.pdf, here are the key results:\n\n• Revenue: $2.5M (up 15% YoY)\n• Operating expenses: $1.8M\n• Net profit margin: 28%\n• Customer acquisition cost decreased by 12%',
-    timestamp: new Date('2024-02-15T14:31:00'),
-  },
-  {
-    id: '3',
-    type: 'user',
-    content: 'What about the department breakdown?',
-    timestamp: new Date('2024-02-15T14:32:00'),
-  },
-  {
-    id: '4',
-    type: 'ai',
-    content:
-      'The report shows revenue distribution across:\n\n• Product Sales: 60% ($1.5M)\n• Services: 30% ($750K)\n• Licensing: 10% ($250K)\n\nProduct sales showed the strongest growth at 22% YoY.',
-    timestamp: new Date('2024-02-15T14:33:00'),
-  },
-];
+import { Button } from '@/components/ui/button';
+import { useChat } from '@ai-sdk/react';
+import { ChatInput } from '@/components/chat-input';
+import type { MentionedFile } from '@/lib/ai/chat-types';
 
 export default function AIChatDetailPage({ params }: { params: { chatId: string } }) {
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const { messages, input, setInput, handleSubmit, isLoading, error } = useChat({
+    api: '/api/ai/chat',
+    body: {
+      fileIds: mentionedFiles.map((f) => f.fileId),
+    },
+    onError: (error) => {
+      console.error('Chat error:', error);
+    },
+  });
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -59,31 +32,13 @@ export default function AIChatDetailPage({ params }: { params: { chatId: string 
     }
   }, [messages]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || loading) return;
-
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      type: 'user',
-      content: input,
-      timestamp: new Date(),
-    };
-
-    setMessages([...messages, newMessage]);
-    setInput('');
-    setLoading(true);
-
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'ai',
-        content: 'This is a simulated AI response. In a real app, this would connect to an AI service.',
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiResponse]);
-      setLoading(false);
-    }, 800);
+    if (!(input ?? '').trim() || isLoading) return;
+    
+    handleSubmit(e);
+    // Clear mentions after sending
+    setMentionedFiles([]);
   };
 
   return (
@@ -111,78 +66,62 @@ export default function AIChatDetailPage({ params }: { params: { chatId: string 
               </Link>
               <div>
                 <h1 className="text-xl font-500 text-foreground">
-                  Summarize Q1 financial data
+                  AI Chat
                 </h1>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <FileText className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-400">
-                    Financial Report Q1.pdf
-                  </span>
-                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Ask questions about your documents
+                </p>
               </div>
             </div>
           </div>
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 max-w-4xl w-full mx-auto px-6 py-6">
-          <div className="space-y-4 pb-4">
-            {/* System Notice */}
-            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3.5 flex gap-2.5 mb-4">
-              <AlertCircle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-xs font-500 text-blue-900">Limited AI Access</p>
-                <p className="text-xs text-blue-800 mt-0.5 font-400">
-                  AI responses are limited to content you've authorized for AI analysis
+        <ScrollArea className="flex-1">
+          <div className="max-w-4xl mx-auto p-5 space-y-4">
+            {messages.length === 0 && (
+              <div className="flex items-center justify-center h-64">
+                <p className="text-muted-foreground text-center">
+                  Start a conversation by asking a question
                 </p>
               </div>
-            </div>
-
-            {/* Chat Messages */}
-            {messages.map((message, index) => (
+            )}
+            
+            {messages.map((message) => (
               <div
                 key={message.id}
-                className={`flex gap-3 animate-fade-in-up ${
-                  message.type === 'user' ? 'justify-end' : 'justify-start'
-                }`}
-                style={{ animationDelay: `${index * 50}ms` }}
+                className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-lg px-4 py-3 rounded-xl text-sm leading-relaxed transition-all duration-200 ${
-                    message.type === 'user'
-                      ? 'bg-primary text-primary-foreground shadow-sm'
+                  className={`max-w-2xl px-4 py-3 rounded-lg ${
+                    message.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-muted/50 text-foreground'
                   }`}
                 >
-                  <p className="font-400 whitespace-pre-wrap">{message.content}</p>
-                  <span
-                    className={`text-xs opacity-60 mt-2 block font-300 ${
-                      message.type === 'user' ? '' : ''
-                    }`}
-                  >
-                    {message.timestamp.toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                    {message.content}
+                  </p>
                 </div>
               </div>
             ))}
 
-            {loading && (
+            {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-muted/50 text-foreground px-4 py-3 rounded-xl">
+                <div className="bg-muted/60 text-foreground px-4 py-3 rounded-lg">
                   <div className="flex gap-1.5">
                     <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" />
-                    <div
-                      className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce"
-                      style={{ animationDelay: '0.1s' }}
-                    />
-                    <div
-                      className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce"
-                      style={{ animationDelay: '0.2s' }}
-                    />
+                    <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                    <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="flex justify-center">
+                <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg text-sm">
+                  <p>Error: {error.message}</p>
                 </div>
               </div>
             )}
@@ -191,27 +130,22 @@ export default function AIChatDetailPage({ params }: { params: { chatId: string 
           </div>
         </ScrollArea>
 
-        {/* Input Footer */}
-        <div className="border-t border-border/20 bg-background/50 p-5">
+        {/* Input */}
+        <div className="border-t border-border/20 p-5 bg-background/50">
           <div className="max-w-4xl mx-auto">
-            <form onSubmit={handleSendMessage} className="flex gap-2">
-              <Input
-                type="text"
-                placeholder="Ask a follow-up question..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={loading}
-                className="bg-muted/30 border-border/20 focus-visible:bg-muted focus-visible:border-primary/20 transition-all duration-250"
-              />
-              <Button
-                type="submit"
-                size="icon"
-                className="bg-primary hover:bg-primary/90 transition-all duration-200 h-10 w-10 shadow-sm hover:shadow-md"
-                disabled={loading}
-              >
-                <Send className="w-4 h-4" />
-              </Button>
-            </form>
+            <div className="text-xs text-muted-foreground mb-3 p-2.5 bg-muted/30 rounded-lg border border-border/20">
+              AI answers respect document access and redactions
+            </div>
+            <ChatInput
+              value={input}
+              onChange={(v) => setInput(v)}
+              onSubmit={onSubmit}
+              mentionedFiles={mentionedFiles}
+              onMentionFile={(file) => setMentionedFiles([...mentionedFiles, file])}
+              onRemoveMention={(fileId) => setMentionedFiles(mentionedFiles.filter((f) => f.fileId !== fileId))}
+              disabled={isLoading}
+              placeholder="Ask a question about your documents..."
+            />
           </div>
         </div>
       </div>
