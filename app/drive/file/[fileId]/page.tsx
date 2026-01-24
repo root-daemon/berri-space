@@ -23,9 +23,151 @@ import { AIAssistantPanel } from '@/components/ai-assistant-panel';
 import { useToast } from '@/hooks/use-toast';
 import type { FileWithAccess } from '@/lib/files';
 import type { FolderWithAccess } from '@/lib/folders';
+import mammoth from 'mammoth';
 
 interface FilePreviewPageProps {
   params: Promise<{ fileId: string }>;
+}
+
+// File Preview Component
+function FilePreview({
+  mimeType,
+  previewUrl,
+  fileName,
+}: {
+  mimeType: string;
+  previewUrl: string;
+  fileName: string;
+}) {
+  const isImage = mimeType.startsWith('image/');
+  const isPdf = mimeType === 'application/pdf';
+  const isDocx = mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+  if (isImage) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-muted/20 p-4">
+        <img
+          src={previewUrl}
+          alt={fileName}
+          className="max-w-full max-h-full object-contain rounded-lg"
+          onError={(e) => {
+            console.error('Failed to load image preview');
+            e.currentTarget.style.display = 'none';
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (isPdf) {
+    return (
+      <div className="w-full h-full bg-muted/20">
+        <iframe
+          src={previewUrl}
+          className="w-full h-full border-0"
+          title={fileName}
+          onError={(e) => {
+            console.error('Failed to load PDF preview');
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (isDocx) {
+    return <DocxPreview previewUrl={previewUrl} fileName={fileName} />;
+  }
+
+  return null;
+}
+
+// DOCX Preview Component using mammoth
+function DocxPreview({ previewUrl, fileName }: { previewUrl: string; fileName: string }) {
+  const [htmlContent, setHtmlContent] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function convertDocx() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        // Fetch the DOCX file as a blob
+        const response = await fetch(previewUrl);
+        if (!response.ok) {
+          throw new Error('Failed to fetch DOCX file');
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+
+        // Convert DOCX to HTML using mammoth
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+
+        setHtmlContent(result.value);
+        if (result.messages.length > 0) {
+          console.warn('Mammoth conversion warnings:', result.messages);
+        }
+      } catch (err) {
+        console.error('Failed to convert DOCX:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load DOCX preview');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    convertDocx();
+  }, [previewUrl]);
+
+  if (isLoading) {
+    return (
+      <div className="w-full h-full bg-gradient-to-br from-muted/50 to-muted/20 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mx-auto" />
+          <p className="text-sm text-muted-foreground">Loading DOCX preview...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="w-full h-full bg-gradient-to-br from-muted/50 to-muted/20 flex items-center justify-center p-8">
+        <div className="text-center space-y-4 max-w-md">
+          <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
+          <div>
+            <p className="text-sm font-500 text-foreground mb-2">Preview Error</p>
+            <p className="text-xs text-muted-foreground">{error}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!htmlContent) {
+    return (
+      <div className="w-full h-full bg-gradient-to-br from-muted/50 to-muted/20 flex items-center justify-center p-8">
+        <div className="text-center space-y-4 max-w-md">
+          <FileText className="w-16 h-16 text-muted-foreground mx-auto" />
+          <div>
+            <p className="text-sm font-500 text-foreground mb-2">No Preview Available</p>
+            <p className="text-xs text-muted-foreground">
+              Unable to generate preview for this DOCX file. Please download to view.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full bg-white overflow-auto p-8">
+      <div
+        className="max-w-none [&_p]:mb-4 [&_p]:text-sm [&_p]:leading-relaxed [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:ml-6 [&_ul]:mb-4 [&_ol]:list-decimal [&_ol]:ml-6 [&_ol]:mb-4 [&_li]:mb-1 [&_strong]:font-semibold [&_em]:italic [&_table]:border-collapse [&_table]:w-full [&_table]:mb-4 [&_th]:border [&_th]:border-gray-300 [&_th]:px-4 [&_th]:py-2 [&_th]:bg-gray-100 [&_td]:border [&_td]:border-gray-300 [&_td]:px-4 [&_td]:py-2"
+        dangerouslySetInnerHTML={{ __html: htmlContent }}
+      />
+    </div>
+  );
 }
 
 export default function FilePreviewPage({ params }: FilePreviewPageProps) {
@@ -38,6 +180,8 @@ export default function FilePreviewPage({ params }: FilePreviewPageProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [showAccessModal, setShowAccessModal] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const { toast } = useToast();
 
@@ -69,6 +213,35 @@ export default function FilePreviewPage({ params }: FilePreviewPageProps) {
             setBreadcrumbs(pathResult.data);
           }
         }
+
+        // Fetch preview URL if file is previewable (after setting file state)
+        const fileData = fileResult.data;
+        if (fileData) {
+          const mimeType = fileData.mime_type;
+          if (mimeType) {
+            const isImage = mimeType.startsWith('image/');
+            const isPdf = mimeType === 'application/pdf';
+            const isDocx = mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+            if (isImage || isPdf || isDocx) {
+              setIsLoadingPreview(true);
+              try {
+                const previewResult = await getDownloadUrlAction({
+                  fileId: fileData.id,
+                  forceDownload: false,
+                });
+
+                if (previewResult.success && previewResult.data?.signedUrl) {
+                  setPreviewUrl(previewResult.data.signedUrl);
+                }
+              } catch (err) {
+                console.error('Failed to fetch preview URL:', err);
+              } finally {
+                setIsLoadingPreview(false);
+              }
+            }
+          }
+        }
       } catch (err) {
         console.error('Failed to fetch file:', err);
         setError('Failed to load file');
@@ -79,6 +252,7 @@ export default function FilePreviewPage({ params }: FilePreviewPageProps) {
 
     fetchFileData();
   }, [fileId]);
+
 
   const handleDownload = async () => {
     if (!file) return;
@@ -244,19 +418,34 @@ export default function FilePreviewPage({ params }: FilePreviewPageProps) {
             {/* Preview Area */}
             <div className="lg:col-span-3">
               <div className="bg-card rounded-xl border border-border/20 overflow-hidden shadow-lg h-96 lg:h-screen max-h-[600px]">
-                <div className="w-full h-full bg-gradient-to-br from-muted/50 to-muted/20 flex items-center justify-center">
-                  <div className="text-center space-y-4">
-                    <div className="w-20 h-20 bg-muted rounded-lg flex items-center justify-center mx-auto">
-                      {getFileIcon()}
-                    </div>
-                    <div>
-                      <p className="text-sm font-500 text-foreground">{file.mime_type || 'Unknown type'}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Preview not available. Click Download to view the file.
-                      </p>
+                {isLoadingPreview ? (
+                  <div className="w-full h-full bg-gradient-to-br from-muted/50 to-muted/20 flex items-center justify-center">
+                    <div className="text-center space-y-4">
+                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mx-auto" />
+                      <p className="text-sm text-muted-foreground">Loading preview...</p>
                     </div>
                   </div>
-                </div>
+                ) : previewUrl && file.mime_type ? (
+                  <FilePreview
+                    mimeType={file.mime_type}
+                    previewUrl={previewUrl}
+                    fileName={file.name}
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-muted/50 to-muted/20 flex items-center justify-center">
+                    <div className="text-center space-y-4">
+                      <div className="w-20 h-20 bg-muted rounded-lg flex items-center justify-center mx-auto">
+                        {getFileIcon()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-500 text-foreground">{file.mime_type || 'Unknown type'}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Preview not available. Click Download to view the file.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

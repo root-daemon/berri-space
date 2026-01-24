@@ -56,6 +56,10 @@ interface FileExplorerProps {
   parentFolderId?: string | null;
   /** Callback when folder contents change */
   onRefresh?: () => void;
+  /** Callback to trigger create folder dialog */
+  onCreateFolder?: () => void;
+  /** Callback to trigger upload dialog */
+  onUpload?: () => void;
 }
 
 // ============================================================================
@@ -121,7 +125,7 @@ function formatDate(dateStr: string): string {
 // COMPONENT
 // ============================================================================
 
-export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
+export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUpload }: FileExplorerProps) {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [showAccessModal, setShowAccessModal] = useState(false);
@@ -368,7 +372,7 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
 
   // Empty state
   if (items.length === 0) {
-    return <EmptyState />;
+    return <EmptyState onCreateFolder={onCreateFolder} onUpload={onUpload} />;
   }
 
   return (

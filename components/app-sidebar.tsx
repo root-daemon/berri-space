@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react"
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { SignOutButton } from '@clerk/nextjs';
 import {
   FolderOpen,
@@ -23,6 +24,7 @@ import { getUserTeamsAction } from '@/lib/teams/actions';
 import type { DbTeam } from '@/lib/supabase/types';
 
 export function AppSidebar() {
+  const router = useRouter();
   const [teams, setTeams] = useState<DbTeam[]>([]);
   const [isLoadingTeams, setIsLoadingTeams] = useState(true);
 
@@ -141,7 +143,7 @@ export function AppSidebar() {
         <Button
           variant="outline"
           className="w-full justify-start gap-2 bg-muted/50 hover:bg-muted border-0 text-foreground transition-all duration-200"
-          onClick={() => console.log('Create folder')}
+          onClick={() => router.push('/drive?action=create-folder')}
         >
           <Plus className="w-4 h-4" />
           <span className="font-400">New Folder</span>
@@ -149,7 +151,7 @@ export function AppSidebar() {
         <Button
           variant="outline"
           className="w-full justify-start gap-2 bg-muted/50 hover:bg-muted border-0 text-foreground transition-all duration-200"
-          onClick={() => console.log('Upload file')}
+          onClick={() => router.push('/drive?action=upload')}
         >
           <Upload className="w-4 h-4" />
           <span className="font-400">Upload</span>

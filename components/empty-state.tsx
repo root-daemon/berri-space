@@ -3,7 +3,12 @@
 import { Upload, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export function EmptyState() {
+interface EmptyStateProps {
+  onCreateFolder?: () => void;
+  onUpload?: () => void;
+}
+
+export function EmptyState({ onCreateFolder, onUpload }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4">
       <div className="mb-6">
@@ -14,19 +19,23 @@ export function EmptyState() {
         Upload files or create folders to get started. You can drag and drop files here or use the upload button.
       </p>
       <div className="flex gap-3">
-        <Button
-          variant="outline"
-          onClick={() => console.log('Create folder')}
-        >
-          Create Folder
-        </Button>
-        <Button
-          className="bg-primary hover:bg-primary/90"
-          onClick={() => console.log('Upload file')}
-        >
-          <Upload className="w-4 h-4 mr-2" />
-          Upload Files
-        </Button>
+        {onCreateFolder && (
+          <Button
+            variant="outline"
+            onClick={onCreateFolder}
+          >
+            Create Folder
+          </Button>
+        )}
+        {onUpload && (
+          <Button
+            className="bg-primary hover:bg-primary/90"
+            onClick={onUpload}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Upload Files
+          </Button>
+        )}
       </div>
     </div>
   );

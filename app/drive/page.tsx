@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/app-header';
 import { FileExplorer } from '@/components/file-explorer';
 import { AIAssistantPanel } from '@/components/ai-assistant-panel';
@@ -11,6 +12,7 @@ import { MessageCircle, FolderPlus, Upload, Loader2 } from 'lucide-react';
 import { getDefaultTeamAction } from '@/lib/teams/actions';
 
 export default function DrivePage() {
+  const searchParams = useSearchParams();
   const [showAI, setShowAI] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [showUploadFile, setShowUploadFile] = useState(false);
@@ -35,6 +37,20 @@ export default function DrivePage() {
     }
     fetchDefaultTeam();
   }, []);
+
+  // Handle URL params for triggering dialogs from sidebar
+  useEffect(() => {
+    const action = searchParams.get('action');
+    if (action === 'create-folder' && defaultTeamId) {
+      setShowCreateFolder(true);
+      // Clean up URL
+      window.history.replaceState({}, '', '/drive');
+    } else if (action === 'upload' && defaultTeamId) {
+      setShowUploadFile(true);
+      // Clean up URL
+      window.history.replaceState({}, '', '/drive');
+    }
+  }, [searchParams, defaultTeamId]);
 
   const handleRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -93,6 +109,8 @@ export default function DrivePage() {
               key={refreshKey}
               parentFolderId={null}
               onRefresh={handleRefresh}
+              onCreateFolder={defaultTeamId ? () => setShowCreateFolder(true) : undefined}
+              onUpload={defaultTeamId ? () => setShowUploadFile(true) : undefined}
             />
           )}
         </div>

@@ -171,6 +171,8 @@ export default function FolderPage({ params }: FolderPageProps) {
             key={refreshKey}
             parentFolderId={folderId}
             onRefresh={handleRefresh}
+            onCreateFolder={canCreateFolder ? () => setShowCreateFolder(true) : undefined}
+            onUpload={canCreateFolder ? () => setShowUploadFile(true) : undefined}
           />
         </div>
       </div>
