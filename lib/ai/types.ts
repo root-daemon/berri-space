@@ -219,13 +219,6 @@ export interface SimilarityResult {
   similarity: number;
 }
 
-/** Configuration for chunking */
-export interface ChunkingConfig {
-  chunkSize: number; // Target characters per chunk
-  chunkOverlap: number; // Overlap between chunks
-  minChunkSize: number; // Minimum chunk size to keep
-}
-
 /** Configuration for embedding */
 export interface EmbeddingConfig {
   model: string;
@@ -236,13 +229,6 @@ export interface EmbeddingConfig {
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-
-/** Default chunking configuration */
-export const DEFAULT_CHUNKING_CONFIG: ChunkingConfig = {
-  chunkSize: 1000,
-  chunkOverlap: 200,
-  minChunkSize: 100,
-};
 
 /** Default embedding configuration (Google Gemini embedding-001) */
 export const DEFAULT_EMBEDDING_CONFIG: EmbeddingConfig = {

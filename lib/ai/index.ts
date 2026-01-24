@@ -37,6 +37,7 @@ export {
   estimateChunkCount,
   findChunkForPosition,
   findChunksInRange,
+  CHUNKING_CONSTANTS,
 } from "./chunking";
 
 // Embeddings

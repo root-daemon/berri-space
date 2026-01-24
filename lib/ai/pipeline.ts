@@ -28,7 +28,6 @@ import {
   DocumentRawTextInsert,
   DocumentAiTextInsert,
   DocumentChunkInsert,
-  DEFAULT_CHUNKING_CONFIG,
   DEFAULT_EMBEDDING_CONFIG,
 } from "./types";
 
@@ -380,8 +379,8 @@ export async function indexDocument(
     .eq("id", processing.id);
 
   try {
-    // Chunk the AI-safe text
-    const chunks = chunkText(aiText.content, DEFAULT_CHUNKING_CONFIG);
+    // Chunk the AI-safe text (sentence-aware, ~800 chars per chunk)
+    const chunks = chunkText(aiText.content);
 
     // Validate chunks
     const validation = validateChunks(chunks, aiText.content.length);
