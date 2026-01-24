@@ -2,13 +2,24 @@
 
 import React from "react"
 
-import { useState, useRef, useEffect, FormEvent } from 'react';
+import { useState, useRef, useEffect, useMemo, FormEvent } from 'react';
 import { X, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 import { ChatInput } from './chat-input';
 import type { MentionedFile } from '@/lib/ai/chat-types';
+
+const CHAT_API = '/api/ai/chat';
+
+const WELCOME_MESSAGES = [
+  {
+    id: 'welcome',
+    role: 'assistant' as const,
+    parts: [{ type: 'text' as const, text: "Hi! I'm your AI assistant. I can help you understand your documents. Type @ to mention a specific file, or just ask a question." }],
+  },
+];
 
 interface AIAssistantPanelProps {
   isOpen: boolean;
@@ -16,25 +27,24 @@ interface AIAssistantPanelProps {
 }
 
 export function AIAssistantPanel({ isOpen, onClose }: AIAssistantPanelProps) {
+  const [input, setInput] = useState('');
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { messages, input, setInput, handleSubmit, isLoading, error } = useChat({
-    api: '/api/ai/chat',
-    body: {
-      fileIds: mentionedFiles.map((f) => f.fileId),
-    },
-    initialMessages: [
-      {
-        id: 'welcome',
-        role: 'assistant',
-        content: "Hi! I'm your AI assistant. I can help you understand your documents. Type @ to mention a specific file, or just ask a question.",
-      },
-    ],
-    onError: (error) => {
-      console.error('Chat error:', error);
+  const transport = useMemo(
+    () => new DefaultChatTransport({ api: CHAT_API }),
+    []
+  );
+
+  const { messages, sendMessage, status, error } = useChat({
+    transport,
+    messages: WELCOME_MESSAGES,
+    onError: (err) => {
+      console.error('Chat error:', err);
     },
   });
+
+  const isLoading = status === 'streaming' || status === 'submitted';
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -44,10 +54,13 @@ export function AIAssistantPanel({ isOpen, onClose }: AIAssistantPanelProps) {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!(input ?? '').trim() || isLoading) return;
-    
-    handleSubmit(e);
-    // Clear mentions after sending
+    const text = input.trim();
+    if (!text || isLoading) return;
+    sendMessage(
+      { text },
+      { body: { fileIds: mentionedFiles.map((f) => f.fileId) } }
+    );
+    setInput('');
     setMentionedFiles([]);
   };
 
@@ -71,23 +84,32 @@ export function AIAssistantPanel({ isOpen, onClose }: AIAssistantPanelProps) {
       {/* Messages */}
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-3 pb-4">
-          {messages.map((message, index) => (
-            <div
-              key={message.id}
-              className={`flex gap-2 animate-fade-in-up ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              style={{ animationDelay: `${index * 50}ms` }}
-            >
+          {messages.map((message, index) => {
+            const content =
+              typeof message.content === 'string'
+                ? message.content
+                : message.parts
+                  ?.filter((p: { type: string }) => p.type === 'text')
+                  .map((p: { text: string }) => p.text)
+                  .join('') ?? '';
+            return (
               <div
-                className={`max-w-xs px-3.5 py-2.5 rounded-xl text-sm leading-relaxed transition-all duration-200 ${
-                  message.role === 'user'
-                    ? 'bg-primary text-primary-foreground shadow-sm hover:shadow-md'
-                    : 'bg-muted/50 text-foreground'
-                }`}
+                key={message.id}
+                className={`flex gap-2 animate-fade-in-up ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                style={{ animationDelay: `${index * 50}ms` }}
               >
-                <p className="font-400 whitespace-pre-wrap">{message.content}</p>
+                <div
+                  className={`max-w-xs px-3.5 py-2.5 rounded-xl text-sm leading-relaxed transition-all duration-200 ${
+                    message.role === 'user'
+                      ? 'bg-primary text-primary-foreground shadow-sm hover:shadow-md'
+                      : 'bg-muted/50 text-foreground'
+                  }`}
+                >
+                  <p className="font-400 whitespace-pre-wrap">{content}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {isLoading && (
             <div className="flex justify-start">
               <div className="bg-muted/60 text-foreground px-3.5 py-2.5 rounded-xl">

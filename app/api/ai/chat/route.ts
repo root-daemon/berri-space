@@ -2,6 +2,7 @@
  * AI Chat API Route
  *
  * Handles streaming chat requests with RAG (Retrieval-Augmented Generation).
+ * Uses UI message stream protocol for useChat + DefaultChatTransport.
  *
  * Flow:
  * 1. Authenticate user
@@ -16,7 +17,7 @@
  * - All searches are org-scoped and permission-filtered
  */
 
-import { streamText } from "ai";
+import { streamText, generateId } from "ai";
 import { google } from "@ai-sdk/google";
 import { NextResponse } from "next/server";
 import { getCurrentUser, getCurrentOrganization, AuthenticationError } from "@/lib/auth";
@@ -26,19 +27,48 @@ import {
   retrieveContext,
   buildChatPrompt,
 } from "@/lib/ai/chat-service";
+import type { ChatMessage } from "@/lib/ai/chat-types";
 
 // Set maximum duration for streaming
 export const maxDuration = 30;
 
+/** Extract plain text from a UI message (content string or parts[].text). */
+function getMessageText(msg: { content?: string; parts?: Array<{ type: string; text?: string }> }): string {
+  if (typeof msg.content === "string") return msg.content;
+  if (!Array.isArray(msg.parts)) return "";
+  return msg.parts
+    .filter((p) => p.type === "text" && typeof p.text === "string")
+    .map((p) => (p as { text: string }).text)
+    .join("");
+}
+
+/** Normalize UI messages to { role, content } for RAG. */
+function normalizeMessages(ui: Array<{ role?: string; content?: string; parts?: Array<{ type: string; text?: string }> }>): ChatMessage[] {
+  return ui.map((m) => {
+    const role = m.role === "user" ? "user" : m.role === "assistant" ? "assistant" : "system";
+    return { role, content: getMessageText(m) };
+  });
+}
+
 export async function POST(req: Request) {
   try {
-    // 1. Parse request body
+    // 1. Parse request body (DefaultChatTransport sends id, messages, trigger, messageId; we add fileIds via body)
     const body = await req.json();
     const { messages, fileIds } = body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return NextResponse.json(
         { error: "Messages array is required" },
+        { status: 400 }
+      );
+    }
+
+    const normalized = normalizeMessages(messages);
+    const query = getMessageText(messages[messages.length - 1] ?? {});
+
+    if (!query.trim()) {
+      return NextResponse.json(
+        { error: "Query cannot be empty" },
         { status: 400 }
       );
     }
@@ -61,17 +91,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. Extract query from latest user message
-    const query = messages[messages.length - 1]?.content || "";
-
-    if (!query.trim()) {
-      return NextResponse.json(
-        { error: "Query cannot be empty" },
-        { status: 400 }
-      );
-    }
-
-    // 5. Retrieve RAG context
+    // 4. Retrieve RAG context
     const context = await retrieveContext(
       user.id,
       organization.id,
@@ -79,10 +99,10 @@ export async function POST(req: Request) {
       fileIds
     );
 
-    // 6. Build prompts
-    const { systemPrompt, userPrompt } = buildChatPrompt(context, messages);
+    // 5. Build prompts
+    const { systemPrompt, userPrompt } = buildChatPrompt(context, normalized);
 
-    // 7. Stream response from Gemini 2.5 Flash
+    // 6. Stream response from Gemini 2.5 Flash (UI message stream for useChat)
     const result = streamText({
       model: google("gemini-2.5-flash"),
       system: systemPrompt,
@@ -96,8 +116,11 @@ export async function POST(req: Request) {
       maxTokens: 2048,
     });
 
-    // 8. Return streaming response
-    return result.toDataStreamResponse();
+    // 7. Return UI message stream (DefaultChatTransport expects this)
+    return result.toUIMessageStreamResponse({
+      originalMessages: messages,
+      generateMessageId: generateId,
+    });
   } catch (error) {
     console.error("Chat API error:", error);
 

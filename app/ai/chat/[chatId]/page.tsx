@@ -2,29 +2,37 @@
 
 import React from "react"
 
-import { useState, useRef, useEffect, FormEvent } from 'react';
+import { useState, useRef, useEffect, useMemo, FormEvent } from 'react';
 import { AppHeader } from '@/components/app-header';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 import { ChatInput } from '@/components/chat-input';
 import type { MentionedFile } from '@/lib/ai/chat-types';
 
+const CHAT_API = '/api/ai/chat';
+
 export default function AIChatDetailPage({ params }: { params: { chatId: string } }) {
+  const [input, setInput] = useState('');
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { messages, input, setInput, handleSubmit, isLoading, error } = useChat({
-    api: '/api/ai/chat',
-    body: {
-      fileIds: mentionedFiles.map((f) => f.fileId),
-    },
-    onError: (error) => {
-      console.error('Chat error:', error);
+  const transport = useMemo(
+    () => new DefaultChatTransport({ api: CHAT_API }),
+    []
+  );
+
+  const { messages, sendMessage, status, error } = useChat({
+    transport,
+    onError: (err) => {
+      console.error('Chat error:', err);
     },
   });
+
+  const isLoading = status === 'streaming' || status === 'submitted';
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -34,10 +42,13 @@ export default function AIChatDetailPage({ params }: { params: { chatId: string 
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!(input ?? '').trim() || isLoading) return;
-    
-    handleSubmit(e);
-    // Clear mentions after sending
+    const text = input.trim();
+    if (!text || isLoading) return;
+    sendMessage(
+      { text },
+      { body: { fileIds: mentionedFiles.map((f) => f.fileId) } }
+    );
+    setInput('');
     setMentionedFiles([]);
   };
 
@@ -87,24 +98,33 @@ export default function AIChatDetailPage({ params }: { params: { chatId: string 
               </div>
             )}
             
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
+            {messages.map((message) => {
+              const content =
+                typeof message.content === 'string'
+                  ? message.content
+                  : message.parts
+                    ?.filter((p: { type: string }) => p.type === 'text')
+                    .map((p: { text: string }) => p.text)
+                    .join('') ?? '';
+              return (
                 <div
-                  className={`max-w-2xl px-4 py-3 rounded-lg ${
-                    message.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted/50 text-foreground'
-                  }`}
+                  key={message.id}
+                  className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                    {message.content}
-                  </p>
+                  <div
+                    className={`max-w-2xl px-4 py-3 rounded-lg ${
+                      message.role === 'user'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted/50 text-foreground'
+                    }`}
+                  >
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                      {content}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {isLoading && (
               <div className="flex justify-start">
