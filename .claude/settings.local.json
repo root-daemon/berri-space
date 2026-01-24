@@ -9,7 +9,8 @@
       "mcp__supabase__list_storage_buckets",
       "mcp__supabase__search_docs",
       "mcp__supabase__apply_migration",
-      "mcp__supabase__get_advisors"
+      "mcp__supabase__get_advisors",
+      "mcp__supabase__list_tables"
     ]
   },
   "enableAllProjectMcpServers": true,

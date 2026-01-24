@@ -15,6 +15,31 @@ export type ResourceType = "folder" | "file";
 export type GranteeType = "user" | "team";
 export type PermissionType = "grant" | "deny";
 
+// AI Foundation types (Phase 8)
+export type DocumentProcessingStatus =
+  | "pending_extraction"
+  | "extraction_failed"
+  | "pending_redaction"
+  | "redaction_in_progress"
+  | "pending_commit"
+  | "committed"
+  | "indexing"
+  | "indexed"
+  | "indexing_failed";
+
+export type RedactionType =
+  | "manual"
+  | "regex"
+  | "pii_email"
+  | "pii_phone"
+  | "pii_ssn"
+  | "pii_address"
+  | "pii_name"
+  | "financial"
+  | "medical"
+  | "legal"
+  | "custom";
+
 // ============================================================================
 // TABLE TYPES
 // ============================================================================
@@ -373,6 +398,249 @@ export interface Database {
         };
         Relationships: [];
       };
+      // ========================================================================
+      // AI FOUNDATION TABLES (Phase 8)
+      // ========================================================================
+      document_processing: {
+        Row: {
+          id: string;
+          file_id: string;
+          organization_id: string;
+          status: DocumentProcessingStatus;
+          extracted_at: string | null;
+          extraction_error: string | null;
+          character_count: number | null;
+          redaction_started_at: string | null;
+          redaction_started_by: string | null;
+          committed_at: string | null;
+          committed_by: string | null;
+          indexed_at: string | null;
+          indexing_error: string | null;
+          chunk_count: number | null;
+          embedding_model: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          file_id: string;
+          organization_id: string;
+          status?: DocumentProcessingStatus;
+          extracted_at?: string | null;
+          extraction_error?: string | null;
+          character_count?: number | null;
+          redaction_started_at?: string | null;
+          redaction_started_by?: string | null;
+          committed_at?: string | null;
+          committed_by?: string | null;
+          indexed_at?: string | null;
+          indexing_error?: string | null;
+          chunk_count?: number | null;
+          embedding_model?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          file_id?: string;
+          organization_id?: string;
+          status?: DocumentProcessingStatus;
+          extracted_at?: string | null;
+          extraction_error?: string | null;
+          character_count?: number | null;
+          redaction_started_at?: string | null;
+          redaction_started_by?: string | null;
+          committed_at?: string | null;
+          committed_by?: string | null;
+          indexed_at?: string | null;
+          indexing_error?: string | null;
+          chunk_count?: number | null;
+          embedding_model?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      document_raw_text: {
+        Row: {
+          id: string;
+          file_id: string;
+          organization_id: string;
+          content: string;
+          source_mime_type: string;
+          extraction_method: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          file_id: string;
+          organization_id: string;
+          content: string;
+          source_mime_type: string;
+          extraction_method: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          file_id?: string;
+          organization_id?: string;
+          content?: string;
+          source_mime_type?: string;
+          extraction_method?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      document_redactions: {
+        Row: {
+          id: string;
+          file_id: string;
+          organization_id: string;
+          redaction_type: RedactionType;
+          start_offset: number;
+          end_offset: number;
+          pattern: string | null;
+          semantic_label: string | null;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          file_id: string;
+          organization_id: string;
+          redaction_type: RedactionType;
+          start_offset: number;
+          end_offset: number;
+          pattern?: string | null;
+          semantic_label?: string | null;
+          created_by: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          file_id?: string;
+          organization_id?: string;
+          redaction_type?: RedactionType;
+          start_offset?: number;
+          end_offset?: number;
+          pattern?: string | null;
+          semantic_label?: string | null;
+          created_by?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      document_ai_text: {
+        Row: {
+          id: string;
+          file_id: string;
+          organization_id: string;
+          content: string;
+          character_count: number;
+          redaction_count: number;
+          processing_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          file_id: string;
+          organization_id: string;
+          content: string;
+          character_count: number;
+          redaction_count?: number;
+          processing_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          file_id?: string;
+          organization_id?: string;
+          content?: string;
+          character_count?: number;
+          redaction_count?: number;
+          processing_id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      document_chunks: {
+        Row: {
+          id: string;
+          file_id: string;
+          organization_id: string;
+          chunk_index: number;
+          content: string;
+          character_start: number;
+          character_end: number;
+          embedding: string | null; // pgvector returns as string
+          embedding_model: string;
+          processing_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          file_id: string;
+          organization_id: string;
+          chunk_index: number;
+          content: string;
+          character_start: number;
+          character_end: number;
+          embedding?: string | null;
+          embedding_model: string;
+          processing_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          file_id?: string;
+          organization_id?: string;
+          chunk_index?: number;
+          content?: string;
+          character_start?: number;
+          character_end?: number;
+          embedding?: string | null;
+          embedding_model?: string;
+          processing_id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      ai_query_log: {
+        Row: {
+          id: string;
+          organization_id: string;
+          user_id: string;
+          query_text: string;
+          query_embedding: string | null;
+          result_file_ids: string[];
+          result_count: number;
+          search_duration_ms: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          user_id: string;
+          query_text: string;
+          query_embedding?: string | null;
+          result_file_ids?: string[];
+          result_count?: number;
+          search_duration_ms?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          user_id?: string;
+          query_text?: string;
+          query_embedding?: string | null;
+          result_file_ids?: string[];
+          result_count?: number;
+          search_duration_ms?: number | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -422,6 +690,43 @@ export interface Database {
         };
         Returns: string[];
       };
+      // AI Foundation functions (Phase 8)
+      is_document_committed: {
+        Args: {
+          p_file_id: string;
+        };
+        Returns: boolean;
+      };
+      is_document_ai_ready: {
+        Args: {
+          p_file_id: string;
+        };
+        Returns: boolean;
+      };
+      search_similar_chunks: {
+        Args: {
+          p_user_id: string;
+          p_organization_id: string;
+          p_query_embedding: string;
+          p_limit: number;
+          p_similarity_threshold: number;
+        };
+        Returns: Array<{
+          chunk_id: string;
+          file_id: string;
+          file_name: string;
+          chunk_index: number;
+          content: string;
+          similarity: number;
+        }>;
+      };
+      apply_redactions: {
+        Args: {
+          p_file_id: string;
+          p_raw_text: string;
+        };
+        Returns: string;
+      };
     };
     Enums: {
       org_role: OrgRole;
@@ -429,6 +734,9 @@ export interface Database {
       resource_type: ResourceType;
       grantee_type: GranteeType;
       permission_type: PermissionType;
+      // AI Foundation enums (Phase 8)
+      document_processing_status: DocumentProcessingStatus;
+      redaction_type: RedactionType;
     };
     CompositeTypes: Record<string, never>;
   };
@@ -483,3 +791,32 @@ export type DbRedaction = Database["public"]["Tables"]["redactions"]["Row"];
 
 /** Audit log row */
 export type DbAuditLog = Database["public"]["Tables"]["audit_logs"]["Row"];
+
+// ============================================================================
+// AI FOUNDATION CONVENIENCE TYPES (Phase 8)
+// ============================================================================
+
+/** Document processing state */
+export type DbDocumentProcessing = Database["public"]["Tables"]["document_processing"]["Row"];
+export type DbDocumentProcessingInsert = Database["public"]["Tables"]["document_processing"]["Insert"];
+export type DbDocumentProcessingUpdate = Database["public"]["Tables"]["document_processing"]["Update"];
+
+/** Document raw text (SECURE - never AI accessible) */
+export type DbDocumentRawText = Database["public"]["Tables"]["document_raw_text"]["Row"];
+export type DbDocumentRawTextInsert = Database["public"]["Tables"]["document_raw_text"]["Insert"];
+
+/** Document redactions */
+export type DbDocumentRedaction = Database["public"]["Tables"]["document_redactions"]["Row"];
+export type DbDocumentRedactionInsert = Database["public"]["Tables"]["document_redactions"]["Insert"];
+
+/** Document AI-safe text */
+export type DbDocumentAiText = Database["public"]["Tables"]["document_ai_text"]["Row"];
+export type DbDocumentAiTextInsert = Database["public"]["Tables"]["document_ai_text"]["Insert"];
+
+/** Document chunks with embeddings */
+export type DbDocumentChunk = Database["public"]["Tables"]["document_chunks"]["Row"];
+export type DbDocumentChunkInsert = Database["public"]["Tables"]["document_chunks"]["Insert"];
+
+/** AI query audit log */
+export type DbAiQueryLog = Database["public"]["Tables"]["ai_query_log"]["Row"];
+export type DbAiQueryLogInsert = Database["public"]["Tables"]["ai_query_log"]["Insert"];

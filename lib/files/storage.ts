@@ -329,6 +329,42 @@ export async function deleteStorageFile(storagePath: string): Promise<void> {
 }
 
 /**
+ * Downloads a file from storage as a Buffer.
+ *
+ * Permission checks MUST be performed before calling this function.
+ *
+ * @param storagePath - The storage path of the file
+ * @returns The file content as a Buffer
+ * @throws StorageError if the download fails
+ */
+export async function getStorageFile(storagePath: string): Promise<Buffer> {
+  const supabase = getServerSupabaseClient();
+
+  const { data, error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .download(storagePath);
+
+  if (error) {
+    console.error("Failed to download file from storage:", error.message);
+    throw new StorageError(
+      `Failed to download file: ${error.message}`,
+      "DOWNLOAD_FAILED"
+    );
+  }
+
+  if (!data) {
+    throw new StorageError(
+      "File data not returned from storage",
+      "DOWNLOAD_FAILED"
+    );
+  }
+
+  // Convert Blob to Buffer
+  const arrayBuffer = await data.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+/**
  * Moves a file in storage from old path to new path.
  * Uses copy + delete pattern since Supabase Storage has no native move.
  *

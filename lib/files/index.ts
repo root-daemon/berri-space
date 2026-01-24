@@ -11,7 +11,7 @@
  * All operations enforce permissions via the centralized permission engine.
  */
 
-import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { getServerSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server";
 import { getCurrentUser, getCurrentOrganization } from "@/lib/auth";
 import {
   canUserAccess,
@@ -26,12 +26,14 @@ import {
   createSignedDownloadUrlWithFilename,
   deleteStorageFile,
   moveStorageFile,
+  getStorageFile,
   validateFileMetadata,
   validateFilename,
   StorageError,
   UPLOAD_URL_EXPIRY_SECONDS,
   DOWNLOAD_URL_EXPIRY_SECONDS,
 } from "./storage";
+import { processFullPipeline, isExtractable } from "@/lib/ai";
 import type { Database } from "@/lib/supabase/types";
 
 // Re-export error class
@@ -283,10 +285,80 @@ export async function confirmUpload(
     throw new FileError("Failed to create file record", "INSERT_FAILED");
   }
 
+  // 5. Automatically trigger AI pipeline for extractable files (fire-and-forget)
+  // This runs asynchronously and won't block the upload response
+  if (isExtractable(mimeType)) {
+    // Use fire-and-forget pattern - don't await, don't block response
+    processDocumentForAI(fileId, organization.id, storagePath, mimeType, user.id).catch(
+      (error) => {
+        // Log error but don't fail the upload
+        console.error(
+          `[Auto-vectorization] Failed to process file ${fileId} for AI:`,
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    );
+  }
+
   return {
     ...file,
     effectiveRole: "admin", // Creator is always admin
   };
+}
+
+/**
+ * Processes a document through the AI pipeline automatically.
+ * This is called asynchronously after file upload and doesn't block the response.
+ *
+ * @param fileId - The file ID
+ * @param organizationId - The organization ID
+ * @param storagePath - The storage path of the file
+ * @param mimeType - The MIME type of the file
+ * @param userId - The user ID who uploaded the file
+ */
+async function processDocumentForAI(
+  fileId: string,
+  organizationId: string,
+  storagePath: string,
+  mimeType: string,
+  userId: string
+): Promise<void> {
+  try {
+    // Get admin Supabase client (service role) for pipeline operations
+    const supabaseAdmin = createServerSupabaseClient();
+
+    // Download file from storage
+    const fileBuffer = await getStorageFile(storagePath);
+
+    // Process through full pipeline (extract → commit → index)
+    // This assumes no redactions are needed initially
+    // Admins can add redactions later if needed, which will require re-indexing
+    const result = await processFullPipeline(
+      supabaseAdmin,
+      fileId,
+      organizationId,
+      fileBuffer,
+      mimeType,
+      userId
+    );
+
+    if (!result.success) {
+      console.error(
+        `[Auto-vectorization] Pipeline failed for file ${fileId}:`,
+        result.error
+      );
+    } else {
+      console.log(
+        `[Auto-vectorization] Successfully indexed file ${fileId} with ${result.chunkCount} chunks`
+      );
+    }
+  } catch (error) {
+    // Log but don't throw - this is fire-and-forget
+    console.error(
+      `[Auto-vectorization] Error processing file ${fileId}:`,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
 }
 
 /**
