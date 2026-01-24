@@ -11,6 +11,7 @@ import {
   canUserAccess,
   assertAccess,
   getEffectiveRole,
+  canUserRestore,
   PermissionError,
 } from "@/lib/permissions";
 import type {
@@ -675,28 +676,24 @@ export async function restoreFolder(folderId: string): Promise<FolderWithAccess>
     throw new FolderError("Deleted folder not found", "NOT_FOUND");
   }
 
-  // For restore, we check if user would have admin on the restored folder
-  // This is a bit tricky since the folder is deleted - we use the owner team
-  const userTeams = await getUserTeamIds(user.id, organization.id);
-  const isOwner = deletedFolder.owner_team_id && userTeams.includes(deletedFolder.owner_team_id);
+  // Check restore permission using centralized permission system
+  // Note: For deleted resources, get_effective_role returns null,
+  // so we use canUserRestore which handles the special case of deleted resources
+  const canRestore = await canUserRestore(
+    user.id,
+    "folder",
+    folderId,
+    deletedFolder.owner_team_id,
+    organization.id
+  );
 
-  if (!isOwner) {
-    // Check if user is super_admin
-    const { data: membership } = await supabase
-      .from("organization_members")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("organization_id", organization.id)
-      .single();
-
-    if (!membership || membership.role !== "super_admin") {
-      throw new PermissionError(
-        "Only folder owners or super admins can restore folders",
-        "restore",
-        "folder",
-        folderId
-      );
-    }
+  if (!canRestore) {
+    throw new PermissionError(
+      "Only folder owners or super admins can restore folders",
+      "restore",
+      "folder",
+      folderId
+    );
   }
 
   // Check for name conflict with existing folder

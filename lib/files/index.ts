@@ -16,6 +16,7 @@ import { getCurrentUser, getCurrentOrganization } from "@/lib/auth";
 import {
   canUserAccess,
   assertAccess,
+  canUserRestore,
   PermissionError,
 } from "@/lib/permissions";
 import {
@@ -557,8 +558,25 @@ export async function restoreFile(fileId: string): Promise<FileWithAccess> {
     throw new FileError("File is not deleted", "NOT_DELETED");
   }
 
-  // 5. Check restore permission
-  await assertAccess(user.id, "file", fileId, "restore");
+  // 5. Check restore permission using centralized permission system
+  // Note: For deleted resources, get_effective_role returns null,
+  // so we use canUserRestore which handles the special case of deleted resources
+  const canRestore = await canUserRestore(
+    user.id,
+    "file",
+    fileId,
+    file.owner_team_id,
+    organization.id
+  );
+
+  if (!canRestore) {
+    throw new PermissionError(
+      "Only file owners or super admins can restore files",
+      "restore",
+      "file",
+      fileId
+    );
+  }
 
   // 6. Restore the file
   const { data: restoredFile, error: updateError } = await supabase

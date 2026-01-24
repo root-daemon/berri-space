@@ -429,3 +429,67 @@ export function canCreateDeny(userRole: ResourceRole | null): boolean {
 export function canRevokePermission(userRole: ResourceRole | null): boolean {
   return userRole === "admin";
 }
+
+/**
+ * Checks if a user can restore a deleted resource.
+ *
+ * This is a special case because deleted resources return null from get_effective_role.
+ * For restore, we check:
+ * 1. If user's team owns the resource → can restore (would have admin once restored)
+ * 2. If user is super_admin → can restore (can restore orphaned resources)
+ * 3. Otherwise → cannot restore
+ *
+ * @param userId - The user's database UUID
+ * @param resourceType - 'folder' or 'file'
+ * @param resourceId - The resource's UUID
+ * @param ownerTeamId - The owner team ID of the deleted resource (can be null for orphaned)
+ * @param organizationId - The organization ID
+ * @returns Whether the user can restore the resource
+ */
+export async function canUserRestore(
+  userId: string,
+  resourceType: ResourceType,
+  resourceId: string,
+  ownerTeamId: string | null,
+  organizationId: string
+): Promise<boolean> {
+  const supabase = getServerSupabaseClient();
+
+  // If resource is orphaned, only super_admin can restore
+  if (!ownerTeamId) {
+    const { data: membership } = await supabase
+      .from("organization_members")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("organization_id", organizationId)
+      .single();
+
+    return membership?.role === "super_admin";
+  }
+
+  // Check if user's team owns the resource
+  // Get user's teams in the organization
+  const { data: teams } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("organization_id", organizationId);
+
+  if (!teams || teams.length === 0) {
+    return false;
+  }
+
+  const teamIds = teams.map((t) => t.id);
+
+  const { data: memberships } = await supabase
+    .from("team_members")
+    .select("team_id")
+    .eq("user_id", userId)
+    .in("team_id", teamIds);
+
+  if (!memberships || memberships.length === 0) {
+    return false;
+  }
+
+  const userTeamIds = memberships.map((m) => m.team_id);
+  return userTeamIds.includes(ownerTeamId);
+}
