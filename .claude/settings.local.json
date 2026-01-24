@@ -5,7 +5,11 @@
       "Bash(npx tsc:*)",
       "Bash(npm run build:*)",
       "Bash(ls:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "mcp__supabase__list_storage_buckets",
+      "mcp__supabase__search_docs",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__get_advisors"
     ]
   },
   "enableAllProjectMcpServers": true,

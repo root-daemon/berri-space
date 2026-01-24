@@ -29,9 +29,12 @@ import {
 import { ManageAccessModal } from './manage-access-modal';
 import { EmptyState } from './empty-state';
 import { listFoldersAction, deleteFolderAction, renameFolderAction } from '@/lib/folders/actions';
+import { listFilesAction, deleteFileAction, renameFileAction, getDownloadUrlAction } from '@/lib/files/actions';
 import type { FolderWithAccess } from '@/lib/folders';
+import type { FileWithAccess } from '@/lib/files';
 import { RenameDialog } from './rename-dialog';
 import { DeleteConfirmDialog } from './delete-confirm-dialog';
+import { MoveDialog } from './move-dialog';
 import { useToast } from '@/hooks/use-toast';
 
 // ============================================================================
@@ -73,6 +76,32 @@ function folderToFileItem(folder: FolderWithAccess): FileItem {
 }
 
 /**
+ * Converts a FileWithAccess to a FileItem for display.
+ */
+function fileToFileItem(file: FileWithAccess): FileItem {
+  return {
+    id: file.id,
+    name: file.name,
+    type: 'file',
+    access: file.effectiveRole,
+    lastModified: formatDate(file.updated_at),
+    fileType: getFileType(file.mime_type),
+  };
+}
+
+/**
+ * Determines the display file type from MIME type.
+ */
+function getFileType(mimeType: string | null): 'pdf' | 'doc' | 'xls' | 'image' | 'other' {
+  if (!mimeType) return 'other';
+  if (mimeType === 'application/pdf') return 'pdf';
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return 'xls';
+  if (mimeType.includes('document') || mimeType.includes('word')) return 'doc';
+  return 'other';
+}
+
+/**
  * Formats a date string for display.
  */
 function formatDate(dateStr: string): string {
@@ -105,29 +134,47 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
   // Dialog state
   const [renameItem, setRenameItem] = useState<FileItem | null>(null);
   const [deleteItem, setDeleteItem] = useState<FileItem | null>(null);
+  const [moveItem, setMoveItem] = useState<FileItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
 
   const { toast } = useToast();
 
-  // Fetch folders
+  // Fetch folders and files
   const fetchItems = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const result = await listFoldersAction(parentFolderId);
+      // Fetch both folders and files in parallel
+      const [foldersResult, filesResult] = await Promise.all([
+        listFoldersAction(parentFolderId),
+        listFilesAction(parentFolderId),
+      ]);
 
-      if (!result.success) {
-        setError(result.error);
+      if (!foldersResult.success) {
+        setError(foldersResult.error);
         setItems([]);
         return;
       }
 
-      // Convert folders to FileItems
-      // TODO: Also fetch files when file service is implemented
-      const folderItems = result.data.map(folderToFileItem);
-      setItems(folderItems);
+      // Convert to FileItems - folders first, then files
+      const folderItems = foldersResult.data.map(folderToFileItem);
+      
+      // Handle file listing errors
+      if (!filesResult.success) {
+        console.error('Failed to list files:', filesResult.error);
+        // Don't fail completely - still show folders even if files fail
+        toast({
+          title: 'Warning',
+          description: 'Some files could not be loaded. ' + (filesResult.error || 'Unknown error'),
+          variant: 'destructive',
+        });
+      }
+      
+      const fileItems = filesResult.success ? filesResult.data.map(fileToFileItem) : [];
+
+      setItems([...folderItems, ...fileItems]);
     } catch (err) {
       console.error('Failed to fetch items:', err);
       setError('Failed to load items');
@@ -142,16 +189,15 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
     fetchItems();
   }, [fetchItems]);
 
-  // Handle rename
+  // Handle rename (folders and files)
   const handleRename = async (newName: string) => {
     if (!renameItem) return;
 
     setIsRenaming(true);
     try {
-      const result = await renameFolderAction({
-        folderId: renameItem.id,
-        newName,
-      });
+      const result = renameItem.type === 'folder'
+        ? await renameFolderAction({ folderId: renameItem.id, newName })
+        : await renameFileAction(renameItem.id, newName);
 
       if (!result.success) {
         toast({
@@ -163,7 +209,7 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
       }
 
       toast({
-        title: 'Folder renamed',
+        title: `${renameItem.type === 'folder' ? 'Folder' : 'File'} renamed`,
         description: `Renamed to "${newName}"`,
       });
 
@@ -181,13 +227,15 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
     }
   };
 
-  // Handle delete
+  // Handle delete (folders and files)
   const handleDelete = async () => {
     if (!deleteItem) return;
 
     setIsDeleting(true);
     try {
-      const result = await deleteFolderAction(deleteItem.id);
+      const result = deleteItem.type === 'folder'
+        ? await deleteFolderAction(deleteItem.id)
+        : await deleteFileAction(deleteItem.id);
 
       if (!result.success) {
         toast({
@@ -199,7 +247,7 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
       }
 
       toast({
-        title: 'Folder deleted',
+        title: `${deleteItem.type === 'folder' ? 'Folder' : 'File'} deleted`,
         description: `"${deleteItem.name}" moved to trash`,
       });
 
@@ -214,6 +262,56 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
       });
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  // Handle move (folders and files)
+  const handleMoveComplete = () => {
+    fetchItems();
+    onRefresh?.();
+  };
+
+  // Handle file download
+  const handleDownload = async (item: FileItem) => {
+    if (item.type !== 'file') return;
+
+    try {
+      const result = await getDownloadUrlAction({ fileId: item.id, forceDownload: true });
+
+      if (!result.success) {
+        toast({
+          title: 'Download failed',
+          description: result.error || 'Unable to download file. Please try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (!result.data?.signedUrl) {
+        toast({
+          title: 'Download failed',
+          description: 'Invalid download URL received',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Open signed URL in new tab to trigger download
+      // Use a temporary anchor element for better download handling
+      const link = document.createElement('a');
+      link.href = result.data.signedUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Download error:', err);
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to download file',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -321,21 +419,34 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={(e) => { e.preventDefault(); }}>
-                        Open
+                      <DropdownMenuItem asChild>
+                        <Link href={itemLink} className="cursor-pointer">
+                          Open
+                        </Link>
                       </DropdownMenuItem>
+                      {item.type === 'file' && (
+                        <DropdownMenuItem onClick={(e) => { e.preventDefault(); handleDownload(item); }}>
+                          Download
+                        </DropdownMenuItem>
+                      )}
                       {(item.access === 'admin' || item.access === 'editor') && (
                         <DropdownMenuItem onClick={(e) => { e.preventDefault(); setRenameItem(item); }}>
                           Rename
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuItem onClick={(e) => { e.preventDefault(); }}>
-                        Move
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={(e) => { e.preventDefault(); handleManageAccess(item); }}>
-                        Manage Access
-                      </DropdownMenuItem>
+                      {item.access === 'admin' && (
+                        <DropdownMenuItem onClick={(e) => { e.preventDefault(); setMoveItem(item); }}>
+                          Move
+                        </DropdownMenuItem>
+                      )}
+                      {(item.access === 'admin' || item.access === 'editor') && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={(e) => { e.preventDefault(); handleManageAccess(item); }}>
+                            Manage Access
+                          </DropdownMenuItem>
+                        </>
+                      )}
                       {item.access === 'admin' && (
                         <>
                           <DropdownMenuSeparator />
@@ -412,17 +523,34 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem>Open</DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link href={itemLink} className="cursor-pointer">
+                          Open
+                        </Link>
+                      </DropdownMenuItem>
+                      {item.type === 'file' && (
+                        <DropdownMenuItem onClick={() => handleDownload(item)}>
+                          Download
+                        </DropdownMenuItem>
+                      )}
                       {(item.access === 'admin' || item.access === 'editor') && (
                         <DropdownMenuItem onClick={() => setRenameItem(item)}>
                           Rename
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuItem>Move</DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => handleManageAccess(item)}>
-                        Manage Access
-                      </DropdownMenuItem>
+                      {item.access === 'admin' && (
+                        <DropdownMenuItem onClick={() => setMoveItem(item)}>
+                          Move
+                        </DropdownMenuItem>
+                      )}
+                      {(item.access === 'admin' || item.access === 'editor') && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleManageAccess(item)}>
+                            Manage Access
+                          </DropdownMenuItem>
+                        </>
+                      )}
                       {item.access === 'admin' && (
                         <>
                           <DropdownMenuSeparator />
@@ -469,6 +597,16 @@ export function FileExplorer({ parentFolderId, onRefresh }: FileExplorerProps) {
         onConfirm={handleDelete}
         isLoading={isDeleting}
       />
+
+      {moveItem && (
+        <MoveDialog
+          isOpen={!!moveItem}
+          onClose={() => setMoveItem(null)}
+          item={moveItem}
+          currentFolderId={parentFolderId || null}
+          onMoveComplete={handleMoveComplete}
+        />
+      )}
     </>
   );
 }

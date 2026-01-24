@@ -49,6 +49,14 @@ export interface RenameFolderInput {
 }
 
 /**
+ * Input for moving a folder.
+ */
+export interface MoveFolderInput {
+  folderId: string;
+  targetParentFolderId: string | null; // null for root
+}
+
+/**
  * Error thrown for folder operations.
  */
 export class FolderError extends Error {
@@ -60,6 +68,8 @@ export class FolderError extends Error {
       | "INVALID_INPUT"
       | "PERMISSION_DENIED"
       | "DB_ERROR"
+      | "CIRCULAR_MOVE"
+      | "MOVE_TO_SAME_LOCATION"
   ) {
     super(message);
     this.name = "FolderError";
@@ -326,6 +336,175 @@ export async function createFolder(
 // ============================================================================
 // UPDATE OPERATIONS
 // ============================================================================
+
+/**
+ * Moves a folder to a different parent.
+ *
+ * Permission: Admin only
+ *
+ * @param input - Move folder input
+ * @returns The moved folder
+ */
+export async function moveFolder(
+  input: MoveFolderInput
+): Promise<FolderWithAccess> {
+  const { folderId, targetParentFolderId } = input;
+
+  // 1. Authenticate user
+  const user = await getCurrentUser();
+  const { organization } = await getCurrentOrganization();
+  const supabase = getServerSupabaseClient();
+
+  // 2. Get folder record, verify organization
+  const { data: folder, error: folderError } = await supabase
+    .from("folders")
+    .select("*")
+    .eq("id", folderId)
+    .single();
+
+  if (folderError || !folder) {
+    throw new FolderError("Folder not found", "NOT_FOUND");
+  }
+
+  if (folder.organization_id !== organization.id) {
+    throw new FolderError("Folder not found", "NOT_FOUND");
+  }
+
+  if (folder.deleted_at) {
+    throw new FolderError("Cannot move a deleted folder", "NOT_FOUND");
+  }
+
+  // 3. Check move permission (admin only)
+  await assertAccess(user.id, "folder", folderId, "move");
+
+  // 4. Validate target parent exists and belongs to org
+  if (targetParentFolderId) {
+    const { data: targetParent, error: targetError } = await supabase
+      .from("folders")
+      .select("id, organization_id, deleted_at")
+      .eq("id", targetParentFolderId)
+      .single();
+
+    if (targetError || !targetParent) {
+      throw new FolderError("Target folder not found", "NOT_FOUND");
+    }
+
+    if (targetParent.organization_id !== organization.id) {
+      throw new FolderError("Target folder not found", "NOT_FOUND");
+    }
+
+    if (targetParent.deleted_at) {
+      throw new FolderError("Cannot move to a deleted folder", "NOT_FOUND");
+    }
+
+    // 5. Check user has create_subfolder permission on target parent
+    const targetPermission = await canUserAccess(
+      user.id,
+      "folder",
+      targetParentFolderId,
+      "create_subfolder"
+    );
+
+    if (!targetPermission.allowed) {
+      throw new PermissionError(
+        "No permission to create folders in the target location",
+        "create_subfolder",
+        "folder",
+        targetParentFolderId
+      );
+    }
+  }
+
+  // 6. Prevent circular moves:
+  //    - Cannot move folder into itself
+  if (folderId === targetParentFolderId) {
+    throw new FolderError(
+      "Cannot move folder into itself",
+      "CIRCULAR_MOVE"
+    );
+  }
+
+  //    - Cannot move folder into any descendant
+  if (targetParentFolderId) {
+    const targetPath = await getFolderPath(targetParentFolderId);
+    const targetAncestorIds = targetPath.map((f) => f.id);
+
+    // Check if source folder is an ancestor of target
+    if (targetAncestorIds.includes(folderId)) {
+      throw new FolderError(
+        "Cannot move folder into its own descendant",
+        "CIRCULAR_MOVE"
+      );
+    }
+  }
+
+  // 7. Prevent moving to same location (no-op)
+  if (folder.parent_folder_id === targetParentFolderId) {
+    // Return the folder as-is
+    const role = await getEffectiveRole(user.id, "folder", folderId);
+    if (!role) {
+      throw new FolderError("Folder not found", "NOT_FOUND");
+    }
+    return {
+      ...folder,
+      access: role,
+    };
+  }
+
+  // 8. Check for duplicate name in target parent
+  const duplicateQuery = supabase
+    .from("folders")
+    .select("id")
+    .eq("organization_id", organization.id)
+    .eq("name", folder.name)
+    .neq("id", folderId)
+    .is("deleted_at", null);
+
+  if (targetParentFolderId) {
+    duplicateQuery.eq("parent_folder_id", targetParentFolderId);
+  } else {
+    duplicateQuery.is("parent_folder_id", null);
+  }
+
+  const { data: existing } = await duplicateQuery.single();
+
+  if (existing) {
+    throw new FolderError(
+      `A folder named "${folder.name}" already exists in the target location`,
+      "ALREADY_EXISTS"
+    );
+  }
+
+  // 9. Update DB: parent_folder_id
+  const { data: movedFolder, error: updateError } = await supabase
+    .from("folders")
+    .update({
+      parent_folder_id: targetParentFolderId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", folderId)
+    .select("*")
+    .single();
+
+  if (updateError || !movedFolder) {
+    console.error("Failed to move folder:", updateError?.message);
+    throw new FolderError(
+      `Failed to move folder: ${updateError?.message || "Unknown error"}`,
+      "DB_ERROR"
+    );
+  }
+
+  // 10. Return updated folder with access info
+  const role = await getEffectiveRole(user.id, "folder", folderId);
+  if (!role) {
+    throw new FolderError("Folder not found", "NOT_FOUND");
+  }
+
+  return {
+    ...movedFolder,
+    access: role,
+  };
+}
 
 /**
  * Renames a folder.

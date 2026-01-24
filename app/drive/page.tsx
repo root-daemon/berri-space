@@ -5,13 +5,15 @@ import { AppHeader } from '@/components/app-header';
 import { FileExplorer } from '@/components/file-explorer';
 import { AIAssistantPanel } from '@/components/ai-assistant-panel';
 import { CreateFolderDialog } from '@/components/create-folder-dialog';
+import { FileUploadDialog } from '@/components/file-upload-dialog';
 import { Button } from '@/components/ui/button';
-import { MessageCircle, FolderPlus, Loader2 } from 'lucide-react';
+import { MessageCircle, FolderPlus, Upload, Loader2 } from 'lucide-react';
 import { getDefaultTeamAction } from '@/lib/teams/actions';
 
 export default function DrivePage() {
   const [showAI, setShowAI] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [showUploadFile, setShowUploadFile] = useState(false);
   const [defaultTeamId, setDefaultTeamId] = useState<string | null>(null);
   const [isLoadingTeam, setIsLoadingTeam] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -53,14 +55,24 @@ export default function DrivePage() {
             </div>
             <div className="flex items-center gap-2">
               {defaultTeamId && (
-                <Button
-                  variant="outline"
-                  onClick={() => setShowCreateFolder(true)}
-                  className="gap-2"
-                >
-                  <FolderPlus className="w-4 h-4" />
-                  New Folder
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowUploadFile(true)}
+                    className="gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Upload
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowCreateFolder(true)}
+                    className="gap-2"
+                  >
+                    <FolderPlus className="w-4 h-4" />
+                    New Folder
+                  </Button>
+                </>
               )}
               <Button
                 onClick={() => setShowAI(true)}
@@ -89,13 +101,21 @@ export default function DrivePage() {
       <AIAssistantPanel isOpen={showAI} onClose={() => setShowAI(false)} />
 
       {defaultTeamId && (
-        <CreateFolderDialog
-          isOpen={showCreateFolder}
-          onClose={() => setShowCreateFolder(false)}
-          parentFolderId={null}
-          ownerTeamId={defaultTeamId}
-          onCreated={handleRefresh}
-        />
+        <>
+          <CreateFolderDialog
+            isOpen={showCreateFolder}
+            onClose={() => setShowCreateFolder(false)}
+            parentFolderId={null}
+            ownerTeamId={defaultTeamId}
+            onCreated={handleRefresh}
+          />
+          <FileUploadDialog
+            isOpen={showUploadFile}
+            onClose={() => setShowUploadFile(false)}
+            folderId={null}
+            onUploadComplete={handleRefresh}
+          />
+        </>
       )}
     </>
   );

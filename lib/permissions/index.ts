@@ -40,6 +40,7 @@ export type FolderAction =
   | "view"
   | "list"
   | "create_subfolder"
+  | "upload_file"
   | "rename"
   | "move"
   | "delete"
@@ -107,6 +108,7 @@ const FOLDER_ACTION_ROLES: Record<FolderAction, ResourceRole> = {
 
   // Editor actions
   create_subfolder: "editor",
+  upload_file: "editor",
   rename: "editor",
   grant_access: "editor", // Note: editors can only grant editor/viewer, not admin
   create_public_link: "editor",

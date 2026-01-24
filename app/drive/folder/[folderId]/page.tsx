@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback, use } from 'react';
-import { Folder, Loader2, FolderPlus, MessageCircle, AlertCircle } from 'lucide-react';
+import { Folder, Loader2, FolderPlus, Upload, MessageCircle, AlertCircle } from 'lucide-react';
 import { AppHeader } from '@/components/app-header';
 import { FileExplorer } from '@/components/file-explorer';
 import { AIAssistantPanel } from '@/components/ai-assistant-panel';
 import { CreateFolderDialog } from '@/components/create-folder-dialog';
+import { FileUploadDialog } from '@/components/file-upload-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getFolderAction, getFolderPathAction } from '@/lib/folders/actions';
@@ -20,6 +21,7 @@ export default function FolderPage({ params }: FolderPageProps) {
 
   const [showAI, setShowAI] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [showUploadFile, setShowUploadFile] = useState(false);
   const [folder, setFolder] = useState<FolderWithAccess | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<FolderWithAccess[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -136,14 +138,24 @@ export default function FolderPage({ params }: FolderPageProps) {
             </div>
             <div className="flex items-center gap-2">
               {canCreateFolder && (
-                <Button
-                  variant="outline"
-                  onClick={() => setShowCreateFolder(true)}
-                  className="gap-2"
-                >
-                  <FolderPlus className="w-4 h-4" />
-                  New Folder
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowUploadFile(true)}
+                    className="gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Upload
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowCreateFolder(true)}
+                    className="gap-2"
+                  >
+                    <FolderPlus className="w-4 h-4" />
+                    New Folder
+                  </Button>
+                </>
               )}
               <Button
                 onClick={() => setShowAI(true)}
@@ -166,13 +178,21 @@ export default function FolderPage({ params }: FolderPageProps) {
       <AIAssistantPanel isOpen={showAI} onClose={() => setShowAI(false)} />
 
       {canCreateFolder && (
-        <CreateFolderDialog
-          isOpen={showCreateFolder}
-          onClose={() => setShowCreateFolder(false)}
-          parentFolderId={folderId}
-          ownerTeamId={folder.owner_team_id}
-          onCreated={handleRefresh}
-        />
+        <>
+          <CreateFolderDialog
+            isOpen={showCreateFolder}
+            onClose={() => setShowCreateFolder(false)}
+            parentFolderId={folderId}
+            ownerTeamId={folder.owner_team_id}
+            onCreated={handleRefresh}
+          />
+          <FileUploadDialog
+            isOpen={showUploadFile}
+            onClose={() => setShowUploadFile(false)}
+            folderId={folderId}
+            onUploadComplete={handleRefresh}
+          />
+        </>
       )}
     </>
   );

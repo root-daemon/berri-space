@@ -13,12 +13,14 @@ import {
   getFolderPath,
   createFolder,
   renameFolder,
+  moveFolder,
   deleteFolder,
   restoreFolder,
   FolderError,
   type FolderWithAccess,
   type CreateFolderInput,
   type RenameFolderInput,
+  type MoveFolderInput,
 } from "./index";
 import { PermissionError } from "@/lib/permissions";
 import { AuthenticationError } from "@/lib/auth";
@@ -108,6 +110,20 @@ export async function renameFolderAction(
 ): Promise<ActionResult<FolderWithAccess>> {
   try {
     const folder = await renameFolder(input);
+    return { success: true, data: folder };
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+/**
+ * Moves a folder to a different parent.
+ */
+export async function moveFolderAction(
+  input: MoveFolderInput
+): Promise<ActionResult<FolderWithAccess>> {
+  try {
+    const folder = await moveFolder(input);
     return { success: true, data: folder };
   } catch (error) {
     return handleError(error);
