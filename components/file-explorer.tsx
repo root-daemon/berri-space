@@ -26,6 +26,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { ManageAccessModal } from './manage-access-modal';
 import { EmptyState } from './empty-state';
 import { listFoldersAction, deleteFolderAction, renameFolderAction } from '@/lib/folders/actions';
@@ -403,82 +410,128 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
           {items.map((item) => {
             const itemLink = item.type === 'folder' ? `/drive/folder/${item.id}` : `/drive/file/${item.id}`;
             return (
-              <Link
-                key={item.id}
-                href={itemLink}
-                className="bg-card rounded-xl p-5 hover:shadow-lg transition-all duration-200 ease-out hover:scale-105 hover:-translate-y-0.5 cursor-pointer group border border-transparent hover:border-primary/10 hover:bg-primary/2 active:scale-95 active:transition-transform active:duration-75 block"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1 transform group-hover:scale-110 transition-transform duration-200">
-                    {getFileIcon(item)}
+              <ContextMenu key={item.id}>
+                <ContextMenuTrigger asChild>
+                  <div className="block">
+                    <Link
+                      href={itemLink}
+                      className="bg-card rounded-xl p-5 hover:shadow-lg transition-all duration-200 ease-out hover:scale-105 hover:-translate-y-0.5 cursor-pointer group border border-transparent hover:border-primary/10 hover:bg-primary/2 active:scale-95 active:transition-transform active:duration-75 block"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1 transform group-hover:scale-110 transition-transform duration-200">
+                          {getFileIcon(item)}
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 h-8 w-8 hover:bg-muted/50"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link href={itemLink} className="cursor-pointer">
+                                Open
+                              </Link>
+                            </DropdownMenuItem>
+                            {item.type === 'file' && (
+                              <DropdownMenuItem onClick={(e) => { e.preventDefault(); handleDownload(item); }}>
+                                Download
+                              </DropdownMenuItem>
+                            )}
+                            {(item.access === 'admin' || item.access === 'editor') && (
+                              <DropdownMenuItem onClick={(e) => { e.preventDefault(); setRenameItem(item); }}>
+                                Rename
+                              </DropdownMenuItem>
+                            )}
+                            {item.access === 'admin' && (
+                              <DropdownMenuItem onClick={(e) => { e.preventDefault(); setMoveItem(item); }}>
+                                Move
+                              </DropdownMenuItem>
+                            )}
+                            {(item.access === 'admin' || item.access === 'editor') && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={(e) => { e.preventDefault(); handleManageAccess(item); }}>
+                                  Manage Access
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {item.access === 'admin' && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={(e) => { e.preventDefault(); setDeleteItem(item); }}
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+
+                      <h3 className="font-500 text-foreground truncate mb-1 text-sm leading-snug">{item.name}</h3>
+
+                      {item.owner && (
+                        <p className="text-xs text-muted-foreground mb-3">{item.owner}</p>
+                      )}
+
+                      <div className="flex items-center justify-between">
+                        <Badge variant="secondary" className="text-xs gap-1.5 px-2 py-0.5 bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full">
+                          {getAccessIcon(item.access)}
+                          <span className="font-400 text-xs">{item.access}</span>
+                        </Badge>
+                      </div>
+                    </Link>
                   </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 h-8 w-8 hover:bg-muted/50"
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem asChild>
+                    <Link href={itemLink} className="cursor-pointer">
+                      Open
+                    </Link>
+                  </ContextMenuItem>
+                  {item.type === 'file' && (
+                    <ContextMenuItem onClick={() => handleDownload(item)}>
+                      Download
+                    </ContextMenuItem>
+                  )}
+                  {(item.access === 'admin' || item.access === 'editor') && (
+                    <ContextMenuItem onClick={() => setRenameItem(item)}>
+                      Rename
+                    </ContextMenuItem>
+                  )}
+                  {item.access === 'admin' && (
+                    <ContextMenuItem onClick={() => setMoveItem(item)}>
+                      Move
+                    </ContextMenuItem>
+                  )}
+                  {(item.access === 'admin' || item.access === 'editor') && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onClick={() => handleManageAccess(item)}>
+                        Manage Access
+                      </ContextMenuItem>
+                    </>
+                  )}
+                  {item.access === 'admin' && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        variant="destructive"
+                        onClick={() => setDeleteItem(item)}
                       >
-                        <MoreVertical className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link href={itemLink} className="cursor-pointer">
-                          Open
-                        </Link>
-                      </DropdownMenuItem>
-                      {item.type === 'file' && (
-                        <DropdownMenuItem onClick={(e) => { e.preventDefault(); handleDownload(item); }}>
-                          Download
-                        </DropdownMenuItem>
-                      )}
-                      {(item.access === 'admin' || item.access === 'editor') && (
-                        <DropdownMenuItem onClick={(e) => { e.preventDefault(); setRenameItem(item); }}>
-                          Rename
-                        </DropdownMenuItem>
-                      )}
-                      {item.access === 'admin' && (
-                        <DropdownMenuItem onClick={(e) => { e.preventDefault(); setMoveItem(item); }}>
-                          Move
-                        </DropdownMenuItem>
-                      )}
-                      {(item.access === 'admin' || item.access === 'editor') && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={(e) => { e.preventDefault(); handleManageAccess(item); }}>
-                            Manage Access
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                      {item.access === 'admin' && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={(e) => { e.preventDefault(); setDeleteItem(item); }}
-                          >
-                            Delete
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                <h3 className="font-500 text-foreground truncate mb-1 text-sm leading-snug">{item.name}</h3>
-
-                {item.owner && (
-                  <p className="text-xs text-muted-foreground mb-3">{item.owner}</p>
-                )}
-
-                <div className="flex items-center justify-between">
-                  <Badge variant="secondary" className="text-xs gap-1.5 px-2 py-0.5 bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full">
-                    {getAccessIcon(item.access)}
-                    <span className="font-400 text-xs">{item.access}</span>
-                  </Badge>
-                </div>
-              </Link>
+                        Delete
+                      </ContextMenuItem>
+                    </>
+                  )}
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })}
         </div>
@@ -498,78 +551,124 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
           {items.map((item) => {
             const itemLink = item.type === 'folder' ? `/drive/folder/${item.id}` : `/drive/file/${item.id}`;
             return (
-              <Link
-                key={item.id}
-                href={itemLink}
-                className="grid grid-cols-1 md:grid-cols-5 gap-4 px-6 py-3.5 border-b border-border/20 hover:bg-primary/3 transition-colors duration-150 group items-center last:border-b-0 active:bg-primary/5 active:transition-colors active:duration-75"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="group-hover:scale-110 transition-transform duration-200">
-                    {getFileIcon(item)}
+              <ContextMenu key={item.id}>
+                <ContextMenuTrigger asChild>
+                  <div className="block">
+                    <Link
+                      href={itemLink}
+                      className="grid grid-cols-1 md:grid-cols-5 gap-4 px-6 py-3.5 border-b border-border/20 hover:bg-primary/3 transition-colors duration-150 group items-center last:border-b-0 active:bg-primary/5 active:transition-colors active:duration-75"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="group-hover:scale-110 transition-transform duration-200">
+                          {getFileIcon(item)}
+                        </div>
+                        <span className="font-400 text-foreground text-sm">{item.name}</span>
+                      </div>
+                      <div className="text-sm text-muted-foreground hidden md:block">
+                        {item.owner || '-'}
+                      </div>
+                      <div className="text-sm text-muted-foreground hidden md:block">
+                        {item.lastModified || '-'}
+                      </div>
+                      <Badge variant="secondary" className="text-xs gap-1.5 w-fit bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full px-2 py-0.5">
+                        {getAccessIcon(item.access)}
+                        <span className="font-400 text-xs">{item.access}</span>
+                      </Badge>
+                      <div className="flex justify-end" onClick={(e) => e.preventDefault()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted/50">
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link href={itemLink} className="cursor-pointer">
+                                Open
+                              </Link>
+                            </DropdownMenuItem>
+                            {item.type === 'file' && (
+                              <DropdownMenuItem onClick={() => handleDownload(item)}>
+                                Download
+                              </DropdownMenuItem>
+                            )}
+                            {(item.access === 'admin' || item.access === 'editor') && (
+                              <DropdownMenuItem onClick={() => setRenameItem(item)}>
+                                Rename
+                              </DropdownMenuItem>
+                            )}
+                            {item.access === 'admin' && (
+                              <DropdownMenuItem onClick={() => setMoveItem(item)}>
+                                Move
+                              </DropdownMenuItem>
+                            )}
+                            {(item.access === 'admin' || item.access === 'editor') && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => handleManageAccess(item)}>
+                                  Manage Access
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {item.access === 'admin' && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() => setDeleteItem(item)}
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </Link>
                   </div>
-                  <span className="font-400 text-foreground text-sm">{item.name}</span>
-                </div>
-                <div className="text-sm text-muted-foreground hidden md:block">
-                  {item.owner || '-'}
-                </div>
-                <div className="text-sm text-muted-foreground hidden md:block">
-                  {item.lastModified || '-'}
-                </div>
-                <Badge variant="secondary" className="text-xs gap-1.5 w-fit bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full px-2 py-0.5">
-                  {getAccessIcon(item.access)}
-                  <span className="font-400 text-xs">{item.access}</span>
-                </Badge>
-                <div className="flex justify-end" onClick={(e) => e.preventDefault()}>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted/50">
-                        <MoreVertical className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link href={itemLink} className="cursor-pointer">
-                          Open
-                        </Link>
-                      </DropdownMenuItem>
-                      {item.type === 'file' && (
-                        <DropdownMenuItem onClick={() => handleDownload(item)}>
-                          Download
-                        </DropdownMenuItem>
-                      )}
-                      {(item.access === 'admin' || item.access === 'editor') && (
-                        <DropdownMenuItem onClick={() => setRenameItem(item)}>
-                          Rename
-                        </DropdownMenuItem>
-                      )}
-                      {item.access === 'admin' && (
-                        <DropdownMenuItem onClick={() => setMoveItem(item)}>
-                          Move
-                        </DropdownMenuItem>
-                      )}
-                      {(item.access === 'admin' || item.access === 'editor') && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleManageAccess(item)}>
-                            Manage Access
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                      {item.access === 'admin' && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => setDeleteItem(item)}
-                          >
-                            Delete
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </Link>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem asChild>
+                    <Link href={itemLink} className="cursor-pointer">
+                      Open
+                    </Link>
+                  </ContextMenuItem>
+                  {item.type === 'file' && (
+                    <ContextMenuItem onClick={() => handleDownload(item)}>
+                      Download
+                    </ContextMenuItem>
+                  )}
+                  {(item.access === 'admin' || item.access === 'editor') && (
+                    <ContextMenuItem onClick={() => setRenameItem(item)}>
+                      Rename
+                    </ContextMenuItem>
+                  )}
+                  {item.access === 'admin' && (
+                    <ContextMenuItem onClick={() => setMoveItem(item)}>
+                      Move
+                    </ContextMenuItem>
+                  )}
+                  {(item.access === 'admin' || item.access === 'editor') && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onClick={() => handleManageAccess(item)}>
+                        Manage Access
+                      </ContextMenuItem>
+                    </>
+                  )}
+                  {item.access === 'admin' && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        variant="destructive"
+                        onClick={() => setDeleteItem(item)}
+                      >
+                        Delete
+                      </ContextMenuItem>
+                    </>
+                  )}
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })}
         </div>

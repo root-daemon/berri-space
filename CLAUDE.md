@@ -23,8 +23,7 @@ These choices are finalized and must not be changed unless explicitly requested.
 - File Storage: Supabase Storage (S3-compatible)
 - Vector DB:
   - MVP: Supabase pgvector
-  - Scale: Pinecone
-- AI Provider: OpenAI
+- AI Provider: Gemini 
 
 ---
 
