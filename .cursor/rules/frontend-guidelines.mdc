@@ -1,0 +1,15 @@
+---
+description: Frontend and UI standards
+globs:
+  - "app/**/*"
+  - "components/**/*"
+alwaysApply: true
+---
+
+# Frontend Rules
+- Use functional components with TypeScript.
+- Fetch data using server actions or Supabase client.
+- Never expose direct file URLs; use signed URLs.
+- Use Tailwind CSS and consistent spacing scales.
+- Maintain accessibility (aria labels, keyboard focus).
+- Use Clerk session for authenticated UI states.

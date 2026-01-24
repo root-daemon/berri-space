@@ -1,6 +1,6 @@
 'use client';
 
-import React from "react"
+import React, { useEffect, useState } from "react"
 
 import Link from 'next/link';
 import { SignOutButton } from '@clerk/nextjs';
@@ -16,11 +16,34 @@ import {
   Settings,
   MessageSquare,
   Shield,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getUserTeamsAction } from '@/lib/teams/actions';
+import type { DbTeam } from '@/lib/supabase/types';
 
 export function AppSidebar() {
-  const teams = ['Sales', 'Accounting', 'Legal'];
+  const [teams, setTeams] = useState<DbTeam[]>([]);
+  const [isLoadingTeams, setIsLoadingTeams] = useState(true);
+
+  useEffect(() => {
+    loadTeams();
+  }, []);
+
+  const loadTeams = async () => {
+    setIsLoadingTeams(true);
+    try {
+      const result = await getUserTeamsAction();
+      if (result.success) {
+        // Limit to 5 teams for display
+        setTeams(result.data.slice(0, 5));
+      }
+    } catch (error) {
+      console.error('Failed to load teams:', error);
+    } finally {
+      setIsLoadingTeams(false);
+    }
+  };
 
   return (
     <aside className="w-64 h-screen bg-background border-r border-border/20 overflow-y-auto flex flex-col">
@@ -73,15 +96,25 @@ export function AppSidebar() {
           </Link>
         </div>
         <div className="space-y-1 mb-4">
-          {teams.map((team) => (
-            <Link
-              key={team}
-              href={`/teams/${team.toLowerCase()}`}
-              className="w-full text-left px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-primary/5 rounded-lg transition-all duration-150 block"
-            >
-              {team}
-            </Link>
-          ))}
+          {isLoadingTeams ? (
+            <div className="px-3 py-2 flex items-center justify-center">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : teams.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              No teams
+            </div>
+          ) : (
+            teams.map((team) => (
+              <Link
+                key={team.id}
+                href={`/teams/${team.id}`}
+                className="w-full text-left px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-primary/5 rounded-lg transition-all duration-150 block"
+              >
+                {team.name}
+              </Link>
+            ))
+          )}
         </div>
       </div>
 

@@ -12,9 +12,10 @@
  * 3. Explicit DENY on resource for user or team → deny
  * 4. User's team owns the resource → admin
  * 5. Explicit GRANT on resource → use that role
- * 6. inherit_permissions = false? → deny
+ * 6. inherit_permissions = false? → skip inheritance walk
  * 7. Walk up folder tree checking deny, ownership, grants, inheritance
- * 8. No match → deny
+ * 8. MVP: User is org member → viewer (invited users see all org folders/files)
+ * 9. No match → deny
  *
  * Key Principles:
  * - Deny always wins over any grant

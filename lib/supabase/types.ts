@@ -9,7 +9,7 @@
 // ENUMS
 // ============================================================================
 
-export type OrgRole = "super_admin" | "member";
+export type OrgRole = "super_admin" | "member" | "admin";
 export type ResourceRole = "admin" | "editor" | "viewer";
 export type ResourceType = "folder" | "file";
 export type GranteeType = "user" | "team";
@@ -76,18 +76,21 @@ export interface Database {
           user_id: string;
           role: OrgRole;
           created_at: string;
+          invited_at: string | null;
         };
         Insert: {
           organization_id: string;
           user_id: string;
           role?: OrgRole;
           created_at?: string;
+          invited_at?: string | null;
         };
         Update: {
           organization_id?: string;
           user_id?: string;
           role?: OrgRole;
           created_at?: string;
+          invited_at?: string | null;
         };
         Relationships: [];
       };

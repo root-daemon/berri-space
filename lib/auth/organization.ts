@@ -21,13 +21,42 @@ export interface OrganizationContext {
   isSuperAdmin: boolean;
 }
 
+type MembershipWithInvited = {
+  organization_id: string;
+  user_id: string;
+  role: string;
+  created_at: string;
+  invited_at: string | null;
+};
+
+/**
+ * Sort memberships: invited orgs (invited_at set) first, then own org (invited_at NULL).
+ * Among same priority, most recently joined first. MVP: one org, prioritize invited.
+ */
+function sortByInvitedFirst(
+  a: MembershipWithInvited,
+  b: MembershipWithInvited
+): number {
+  const aInvited = a.invited_at != null;
+  const bInvited = b.invited_at != null;
+  if (aInvited && !bInvited) return -1;
+  if (!aInvited && bInvited) return 1;
+  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+}
+
 /**
  * Gets the current user's active organization.
  *
  * This function:
  * 1. Gets the authenticated user from the database
- * 2. Fetches their organization membership(s)
- * 3. Returns the first organization (for now, we assume one org per user)
+ * 2. Fetches all their organization memberships
+ * 3. Prioritizes invited organizations (invited_at set) over own (invited_at NULL) per MVP
+ * 4. Returns the prioritized organization
+ *
+ * Priority logic:
+ * - If user has both an invited org and own org, returns invited org
+ * - If user only has one org, returns that org
+ * - Among same priority, returns most recently joined
  *
  * For multi-org support in the future, this could accept an optional orgId
  * parameter or read from a session/cookie.
@@ -47,59 +76,58 @@ export async function getCurrentOrganization(): Promise<OrganizationContext> {
   const user = await requireDbUser();
   const supabase = getServerSupabaseClient();
 
-  // Fetch user's organization membership
-  const { data: membership, error: membershipError } = await supabase
+  // Fetch all user's organization memberships
+  // Prioritize invited orgs (invited_at set) over own org (invited_at NULL) per MVP
+  const { data: memberships, error: membershipError } = await supabase
     .from("organization_members")
-    .select("organization_id, user_id, role, created_at")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
+    .select("organization_id, user_id, role, created_at, invited_at")
+    .eq("user_id", user.id);
 
   if (membershipError) {
     // Handle "no rows" case - try to repair user setup
-    if (membershipError.code === "PGRST116") {
+    if (membershipError.code === "PGRST116" || (memberships && memberships.length === 0)) {
       console.log("[getCurrentOrganization] User has no organization, attempting repair:", {
         userId: user.id,
       });
       try {
         const repaired = await repairUserSetup(user);
         if (repaired) {
-          // Retry fetching membership after repair
-          const { data: newMembership, error: retryError } = await supabase
-            .from("organization_members")
-            .select("organization_id, user_id, role, created_at")
-            .eq("user_id", user.id)
-            .limit(1)
-            .single();
+        // Retry fetching memberships after repair
+        const { data: newMemberships, error: retryError } = await supabase
+          .from("organization_members")
+          .select("organization_id, user_id, role, created_at, invited_at")
+          .eq("user_id", user.id);
 
-          if (retryError || !newMembership) {
-            throw new AuthenticationError(
-              `Failed to fetch organization membership after repair: ${retryError?.message || "Not found"}`,
-              "DB_QUERY_FAILED"
-            );
-          }
+        if (retryError || !newMemberships || newMemberships.length === 0) {
+          throw new AuthenticationError(
+            `Failed to fetch organization membership after repair: ${retryError?.message || "Not found"}`,
+            "DB_QUERY_FAILED"
+          );
+        }
 
-          // Continue with the new membership
-          const { data: organization, error: orgError } = await supabase
-            .from("organizations")
-            .select("id, name, created_at, updated_at")
-            .eq("id", newMembership.organization_id)
-            .single();
+        const sortedMemberships = newMemberships.sort(sortByInvitedFirst);
+        const selectedMembership = sortedMemberships[0];
 
-          if (orgError || !organization) {
-            throw new AuthenticationError(
-              `Failed to fetch organization after repair: ${orgError?.message || "Not found"}`,
-              "DB_QUERY_FAILED"
-            );
-          }
+        const { data: organization, error: orgError } = await supabase
+          .from("organizations")
+          .select("id, name, created_at, updated_at")
+          .eq("id", selectedMembership.organization_id)
+          .single();
 
-          const role = newMembership.role as OrgRole;
-          return {
-            organization: organization as DbOrganization,
-            membership: newMembership as DbOrganizationMember,
-            role,
-            isSuperAdmin: role === "super_admin",
-          };
+        if (orgError || !organization) {
+          throw new AuthenticationError(
+            `Failed to fetch organization after repair: ${orgError?.message || "Not found"}`,
+            "DB_QUERY_FAILED"
+          );
+        }
+
+        const role = selectedMembership.role as OrgRole;
+        return {
+          organization: organization as DbOrganization,
+          membership: selectedMembership as DbOrganizationMember,
+          role,
+          isSuperAdmin: role === "super_admin",
+        };
         }
       } catch (repairError) {
         console.error("[getCurrentOrganization] Repair failed:", {
@@ -124,7 +152,8 @@ export async function getCurrentOrganization(): Promise<OrganizationContext> {
     );
   }
 
-  if (!membership) {
+  // If no memberships found, try repair
+  if (!memberships || memberships.length === 0) {
     // Try repair as fallback
     console.log("[getCurrentOrganization] No membership found, attempting repair:", {
       userId: user.id,
@@ -132,26 +161,26 @@ export async function getCurrentOrganization(): Promise<OrganizationContext> {
     try {
       const repaired = await repairUserSetup(user);
       if (repaired) {
-        // Retry fetching membership after repair
-        const { data: newMembership, error: retryError } = await supabase
+        // Retry fetching memberships after repair
+        const { data: newMemberships, error: retryError } = await supabase
           .from("organization_members")
-          .select("organization_id, user_id, role, created_at")
-          .eq("user_id", user.id)
-          .limit(1)
-          .single();
+          .select("organization_id, user_id, role, created_at, invited_at")
+          .eq("user_id", user.id);
 
-        if (retryError || !newMembership) {
+        if (retryError || !newMemberships || newMemberships.length === 0) {
           throw new AuthenticationError(
             `Failed to fetch organization membership after repair: ${retryError?.message || "Not found"}`,
             "DB_QUERY_FAILED"
           );
         }
 
-        // Continue with the new membership
+        const sortedMemberships = newMemberships.sort(sortByInvitedFirst);
+        const selectedMembership = sortedMemberships[0];
+
         const { data: organization, error: orgError } = await supabase
           .from("organizations")
           .select("id, name, created_at, updated_at")
-          .eq("id", newMembership.organization_id)
+          .eq("id", selectedMembership.organization_id)
           .single();
 
         if (orgError || !organization) {
@@ -161,10 +190,10 @@ export async function getCurrentOrganization(): Promise<OrganizationContext> {
           );
         }
 
-        const role = newMembership.role as OrgRole;
+        const role = selectedMembership.role as OrgRole;
         return {
           organization: organization as DbOrganization,
-          membership: newMembership as DbOrganizationMember,
+          membership: selectedMembership as DbOrganizationMember,
           role,
           isSuperAdmin: role === "super_admin",
         };
@@ -186,11 +215,16 @@ export async function getCurrentOrganization(): Promise<OrganizationContext> {
     );
   }
 
+  // Prioritize invited orgs (invited_at set) over own org (invited_at NULL). MVP: one org.
+  const sortedMemberships = memberships.sort(sortByInvitedFirst);
+
+  const selectedMembership = sortedMemberships[0];
+
   // Fetch the organization details
   const { data: organization, error: orgError } = await supabase
     .from("organizations")
     .select("id, name, created_at, updated_at")
-    .eq("id", membership.organization_id)
+    .eq("id", selectedMembership.organization_id)
     .single();
 
   if (orgError || !organization) {
@@ -200,11 +234,11 @@ export async function getCurrentOrganization(): Promise<OrganizationContext> {
     );
   }
 
-  const role = membership.role as OrgRole;
+  const role = selectedMembership.role as OrgRole;
 
   return {
     organization: organization as DbOrganization,
-    membership: membership as DbOrganizationMember,
+    membership: selectedMembership as DbOrganizationMember,
     role,
     isSuperAdmin: role === "super_admin",
   };

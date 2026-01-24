@@ -1,0 +1,20 @@
+---
+description: Backend standards
+globs:
+  - "api/**/*"
+  - "server/**/*"
+alwaysApply: true
+---
+
+# Backend Rules
+- Use Supabase server client for database access.
+- Enforce permissions using the centralized `canUserAccess` helper.
+- Always validate input using a schema validation tool (Zod/Joi).
+- Throw explicit errors; do not return null on permission denial.
+- Do not trust client-side IDs or user-controlled fields.
+- Use proper HTTP status codes (401, 403, 400, 500).
+
+# Database Constraints
+- UUIDs for all primary keys.
+- Soft delete using deleted_at.
+- Use RLS with deny-by-default policies (Supabase).

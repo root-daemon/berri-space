@@ -1,0 +1,24 @@
+---
+description: Project overview and core goals
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Project Overview
+This project is a Drive-like document management system with role-based access control and AI capabilities.
+
+# Tech Stack
+- Next.js App Router
+- TypeScript
+- Tailwind CSS
+- Clerk for authentication
+- Supabase Postgres
+- Supabase Storage / S3-compatible
+- Pinecone (or Supabase vector) for AI embeddings
+- OpenAI for AI responses
+
+# Core Principles
+- Permissions must be enforced server-side.
+- AI must never see redacted or unauthorized content.
+- Redaction removes content permanently.
