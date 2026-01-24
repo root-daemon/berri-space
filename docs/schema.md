@@ -211,13 +211,38 @@ Standard action identifiers for `audit_logs.action`:
 
 ---
 
+## Row Level Security (RLS)
+
+RLS is enabled on all tables (migration 004). See `docs/rls-policies.md` for details.
+
+### Key Points
+
+- RLS enforces permissions at the database level
+- Policies use `can_view()`, `can_edit()`, `can_admin()` functions
+- `get_current_user_id()` maps Clerk auth to internal user UUID
+- Service role bypasses RLS for backend operations
+
+### RLS Functions
+
+| Function | Purpose |
+|----------|---------|
+| `get_current_user_id()` | Maps Clerk `auth.uid()` to internal user UUID |
+| `is_org_member(org_id)` | Check if current user is in organization |
+| `current_user_is_super_admin(org_id)` | Check if current user is super_admin |
+
+---
+
 ## Migration Dependencies
 
 ```
 001_create_users_table.sql
-    └── 002_permission_model.sql (this file)
+    └── 002_permission_model.sql
+        └── 003_schema_hardening.sql
+            └── 004_row_level_security.sql
 ```
 
 The schema depends on:
 - `users` table from migration 001
 - `update_updated_at_column()` trigger function from migration 001
+- Enums and tables from migration 002
+- Permission functions from migration 003
