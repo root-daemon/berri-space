@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { ClerkProvider } from '@clerk/nextjs'
 import { QueryProvider } from '@/components/query-provider'
+import { CommandSearchProvider } from '@/components/command-search'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -42,7 +43,9 @@ export default function RootLayout({
       <html lang="en">
         <body className={`font-sans antialiased`}>
           <QueryProvider>
-            {children}
+            <CommandSearchProvider>
+              {children}
+            </CommandSearchProvider>
           </QueryProvider>
           <Analytics />
         </body>

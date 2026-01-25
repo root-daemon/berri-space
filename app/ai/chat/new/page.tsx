@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect, FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useRef, useEffect, useCallback, FormEvent } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/app-header';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ArrowLeft, Sparkles } from 'lucide-react';
@@ -20,6 +20,7 @@ interface Message {
 
 export default function NewChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [input, setInput] = useState('');
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -27,11 +28,112 @@ export default function NewChatPage() {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Batched streaming hook
+  // Batched streaming hook (must be defined before handleAutoSubmit)
   const { streamResponse } = useChatStream({
     onUpdate: setMessages,
     onError: setError,
   });
+
+  // Auto-submit handler for command search queries
+  const handleAutoSubmit = useCallback(async (text: string) => {
+    if (!text.trim() || isLoading) return;
+
+    setError(null);
+    setIsLoading(true);
+
+    // Add user message to UI immediately
+    const userMsgId = `user-${Date.now()}`;
+    setMessages((prev) => [...prev, { id: userMsgId, role: 'user', content: text }]);
+    setInput('');
+
+    const fileIds: string[] = [];
+    setMentionedFiles([]);
+
+    try {
+      // Create the conversation with the first message
+      const createResult = await createConversationAction(text, fileIds);
+
+      if (!createResult.success) {
+        throw new Error(createResult.error);
+      }
+
+      const conversationId = createResult.data.conversationId;
+
+      // Call the chat API to get the AI response (SSE stream)
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: text }],
+          fileIds,
+          conversationId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to get response');
+      }
+
+      // Stream with batched updates
+      const assistantMsgId = `assistant-${Date.now()}`;
+      const result = await streamResponse(response, assistantMsgId);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Stream failed');
+      }
+
+      // Save assistant message
+      await addMessageAction(conversationId, 'assistant', result.content);
+
+      // Hand off to [chatId] so it can render immediately without a loading flash
+      const title = text.length > 50 ? text.substring(0, 47) + '...' : text;
+      const handoffKey = `ai-chat-handoff-${conversationId}`;
+
+      // Get current messages for handoff
+      const finalMessages = [
+        { id: userMsgId, role: 'user' as const, content: text },
+        { id: assistantMsgId, role: 'assistant' as const, content: result.content },
+      ];
+
+      try {
+        sessionStorage.setItem(
+          handoffKey,
+          JSON.stringify({ conversationId, title, messages: finalMessages })
+        );
+      } catch {
+        /* ignore */
+      }
+      router.replace(`/ai/chat/${conversationId}`);
+    } catch (err) {
+      console.error('Chat error:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      // Remove the user message on error
+      setMessages((prev) => prev.filter((m) => m.id !== userMsgId));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [streamResponse, router, isLoading]);
+
+  // Pre-fill input from query parameter (from command search) and auto-submit
+  const hasAutoSubmittedRef = React.useRef(false);
+  
+  useEffect(() => {
+    const queryParam = searchParams.get('q');
+    if (queryParam && !isLoading && messages.length === 0 && !hasAutoSubmittedRef.current) {
+      const decodedQuery = decodeURIComponent(queryParam);
+      setInput(decodedQuery);
+      hasAutoSubmittedRef.current = true;
+      
+      // Auto-submit after a short delay to ensure input is set
+      const timer = setTimeout(() => {
+        handleAutoSubmit(decodedQuery);
+      }, 100);
+
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, isLoading, messages.length, handleAutoSubmit]);
 
   useEffect(() => {
     if (scrollRef.current) {

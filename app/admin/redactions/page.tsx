@@ -49,7 +49,6 @@ import {
   commitRedactionsAction,
   type DocumentForRedaction,
   type DocumentRawText,
-  type DocumentRedactionsResult,
 } from '@/lib/admin/redactions/actions';
 import { RedactionDefinition } from '@/lib/ai/types';
 import type { DocumentRedactionWithId } from '@/lib/admin/redactions/actions';
