@@ -57,12 +57,12 @@ export function AppSidebar() {
           <div className="flex items-center gap-3">
             <Image
               src="/favicon.png"
-              alt="berri-space"
+              alt="Berri Spaces"
               width={32}
               height={32}
               className="transform hover:scale-105 transition-transform duration-200"
             />
-            <h1 className="text-lg font-500 text-foreground">berri-space</h1>
+            <h1 className="text-lg font-500 text-foreground capitalize">Berri Spaces</h1>
           </div>
           <ThemeToggle />
         </div>
