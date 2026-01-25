@@ -1,7 +1,8 @@
 /**
  * Types for AI Chat functionality
  *
- * These types support the RAG-based chat interface with file mentions.
+ * These types support the RAG-based chat interface with file mentions
+ * and persistent chat history.
  */
 
 // ============================================================================
@@ -50,4 +51,56 @@ export interface AiReadyFile {
 export interface ChatPrompt {
   systemPrompt: string;
   userPrompt: string;
+}
+
+// ============================================================================
+// CHAT HISTORY TYPES
+// ============================================================================
+
+/** Database row for chat_conversations */
+export interface DbChatConversation {
+  id: string;
+  user_id: string;
+  organization_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Database row for chat_messages */
+export interface DbChatMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  mentioned_file_ids: string[] | null;
+  rag_context: ChatContext[] | null;
+  created_at: string;
+}
+
+/** Conversation summary for list view */
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  preview: string;
+  updatedAt: Date;
+  messageCount: number;
+}
+
+/** Full conversation with messages */
+export interface ConversationWithMessages {
+  id: string;
+  title: string;
+  createdAt: Date;
+  updatedAt: Date;
+  messages: StoredMessage[];
+}
+
+/** Stored message (from database) */
+export interface StoredMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  mentionedFileIds: string[];
+  createdAt: Date;
 }
