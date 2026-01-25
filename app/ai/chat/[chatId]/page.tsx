@@ -43,6 +43,45 @@ export default function AIChatDetailPage({ params }: { params: Promise<{ chatId:
   }, [messages]);
 
   const loadConversation = async () => {
+    const handoffKey = `ai-chat-handoff-${chatId}`;
+    const raw =
+      typeof window !== 'undefined' ? sessionStorage.getItem(handoffKey) : null;
+
+    if (raw) {
+      try {
+        const { title, messages: handoffMessages } = JSON.parse(raw) as {
+          title?: string;
+          messages: Message[];
+        };
+        sessionStorage.removeItem(handoffKey);
+        setConversation({
+          id: chatId,
+          title: title ?? 'Chat',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          messages: handoffMessages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            mentionedFileIds: [] as string[],
+            createdAt: new Date(),
+          })),
+        });
+        setMessages(
+          handoffMessages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+          }))
+        );
+        setError(null);
+        setLoading(false);
+        return;
+      } catch {
+        /* invalid handoff, fall through to fetch */
+      }
+    }
+
     setLoading(true);
     setError(null);
 
@@ -60,7 +99,6 @@ export default function AIChatDetailPage({ params }: { params: Promise<{ chatId:
         );
       } else {
         setError(result.error);
-        // Redirect to history if conversation not found
         if (result.code === 'NOT_FOUND') {
           router.push('/ai/history');
         }
@@ -74,9 +112,14 @@ export default function AIChatDetailPage({ params }: { params: Promise<{ chatId:
   };
 
   const onSubmit = async (e: FormEvent) => {
+    console.warn('[Chat Stream] 1. onSubmit invoked (sync)');
     e.preventDefault();
     const text = input.trim();
-    if (!text || isSubmitting) return;
+    if (!text || isSubmitting) {
+      console.warn('[Chat Stream] 2. early return', { hasText: !!text, isSubmitting });
+      return;
+    }
+    console.warn('[Chat Stream] 3. past early return');
 
     setError(null);
     setIsSubmitting(true);
@@ -90,8 +133,10 @@ export default function AIChatDetailPage({ params }: { params: Promise<{ chatId:
     setMentionedFiles([]);
 
     try {
+      console.warn('[Chat Stream] 4. calling addMessageAction');
       // Save user message to database
       await addMessageAction(chatId, 'user', text, fileIds);
+      console.warn('[Chat Stream] 5. addMessageAction done');
 
       // Build messages array for API (include history for context)
       const apiMessages = [...messages, { role: 'user' as const, content: text }].map((m) => ({
@@ -100,9 +145,19 @@ export default function AIChatDetailPage({ params }: { params: Promise<{ chatId:
       }));
 
       // Call the chat API to get the AI response
+      const log = (msg: string, data?: unknown) =>
+        console.log(`[Chat Stream] ${msg}`, data ?? '');
+
+      log('fetch start', {
+        messagesCount: apiMessages.length,
+        fileIdsCount: fileIds.length,
+        conversationId: chatId,
+      });
+
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           messages: apiMessages,
           fileIds,
@@ -110,19 +165,31 @@ export default function AIChatDetailPage({ params }: { params: Promise<{ chatId:
         }),
       });
 
+      log('fetch done', {
+        ok: response.ok,
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        hasBody: !!response.body,
+      });
+
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
+        log('fetch error response', errData);
         throw new Error(errData.error || 'Failed to get response');
       }
 
       // Read the streaming response
       const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
+      if (!reader) {
+        log('no response body');
+        throw new Error('No response body');
+      }
 
       const decoder = new TextDecoder();
       let assistantContent = '';
       let buffer = '';
       const assistantMsgId = `assistant-${Date.now()}`;
+      let chunkIndex = 0;
 
       // Add assistant message placeholder
       setMessages((prev) => [...prev, { id: assistantMsgId, role: 'assistant', content: '' }]);
@@ -130,82 +197,106 @@ export default function AIChatDetailPage({ params }: { params: Promise<{ chatId:
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          
-          // Process complete lines
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            
-            // UI message stream format: "0:" followed by JSON-encoded string
-            if (line.startsWith('0:')) {
-              try {
-                // Parse the JSON-encoded string after "0:"
-                const textDelta = JSON.parse(line.slice(2));
-                if (typeof textDelta === 'string') {
-                  assistantContent += textDelta;
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantMsgId ? { ...m, content: assistantContent } : m
-                    )
-                  );
-                }
-              } catch (e) {
-                // If parsing fails, try to extract text directly
-                const textAfterPrefix = line.slice(2);
-                if (textAfterPrefix) {
-                  assistantContent += textAfterPrefix;
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantMsgId ? { ...m, content: assistantContent } : m
-                    )
-                  );
-                }
-              }
-            } else if (line.trim()) {
-              // Log unexpected format for debugging
-              console.warn('Unexpected stream format:', line.substring(0, 50));
-            }
+          if (done) {
+            log('stream done', { bufferLength: buffer.length, assistantLength: assistantContent.length });
+            break;
           }
-        }
 
-        // Process any remaining buffer content
-        if (buffer.trim()) {
-          if (buffer.startsWith('0:')) {
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          chunkIndex += 1;
+          if (chunkIndex <= 3) {
+            log(`chunk ${chunkIndex} raw`, {
+              length: chunk.length,
+              preview: chunk.slice(0, 200).replace(/\n/g, '\\n'),
+            });
+          }
+
+          // SSE format: events separated by "\n\n", each "data: <json>\n" or "data: [DONE]\n"
+          const events = buffer.split('\n\n');
+          buffer = events.pop() ?? '';
+
+          for (const raw of events) {
+            const line = raw.trim();
+            if (!line.startsWith('data:')) {
+              if (line && chunkIndex <= 2) log('skip non-data line', { preview: line.slice(0, 80) });
+              continue;
+            }
+            const payload = line.slice(5).trim();
+            if (payload === '[DONE]') {
+              log('saw [DONE]');
+              continue;
+            }
+
             try {
-              const textDelta = JSON.parse(buffer.slice(2));
-              if (typeof textDelta === 'string') {
-                assistantContent += textDelta;
+              const part = JSON.parse(payload) as {
+                type?: string;
+                delta?: string;
+                errorText?: string;
+              };
+              if (chunkIndex <= 2 && events.indexOf(raw) < 2) {
+                log('parsed part', { type: part.type, deltaLen: part.delta?.length });
               }
-            } catch {
-              const textAfterPrefix = buffer.slice(2);
-              if (textAfterPrefix) {
-                assistantContent += textAfterPrefix;
+              if (part.type === 'text-delta' && typeof part.delta === 'string') {
+                assistantContent += part.delta;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId ? { ...m, content: assistantContent } : m
+                  )
+                );
+              } else if (part.type === 'error' && typeof part.errorText === 'string') {
+                log('stream error part', { errorText: part.errorText });
+                throw new Error(part.errorText);
               }
+            } catch (e) {
+              if (e instanceof SyntaxError) {
+                if (chunkIndex <= 2) log('parse skip', { payloadPreview: payload.slice(0, 60) });
+                continue;
+              }
+              throw e;
             }
-          } else {
-            // Try to parse as-is if it doesn't start with 0:
-            assistantContent += buffer;
           }
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMsgId ? { ...m, content: assistantContent } : m
-            )
-          );
         }
+
+        // Process remaining buffer (incomplete event)
+        const remaining = buffer.trim();
+        if (remaining) {
+          log('remaining buffer', { length: remaining.length, preview: remaining.slice(0, 120) });
+        }
+        if (remaining.startsWith('data:') && remaining !== 'data: [DONE]') {
+          const payload = remaining.slice(5).trim();
+          try {
+            const part = JSON.parse(payload) as { type?: string; delta?: string };
+            if (part.type === 'text-delta' && typeof part.delta === 'string') {
+              assistantContent += part.delta;
+              log('remaining had text-delta', { deltaLen: part.delta.length });
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: assistantContent } : m
+          )
+        );
+
+        log('stream complete', {
+          assistantContentLength: assistantContent.length,
+          assistantPreview: assistantContent.slice(0, 100),
+        });
       } catch (streamError) {
-        console.error('Stream reading error:', streamError);
-        throw new Error('Failed to read stream response');
+        console.error('[Chat Stream] stream error', streamError);
+        throw streamError instanceof Error
+          ? streamError
+          : new Error('Failed to read stream response');
       }
 
       // Save the assistant message to the database
       await addMessageAction(chatId, 'assistant', assistantContent);
     } catch (err) {
-      console.error('Chat error:', err);
+      console.error('[Chat Stream] submit error', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
       // Remove the user message on error
       setMessages((prev) => prev.filter((m) => m.id !== userMsgId));

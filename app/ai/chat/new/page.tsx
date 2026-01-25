@@ -58,10 +58,11 @@ export default function NewChatPage() {
 
       const conversationId = createResult.data.conversationId;
 
-      // Now call the chat API to get the AI response
+      // Now call the chat API to get the AI response (SSE stream)
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           messages: [{ role: 'user', content: text }],
           fileIds,
@@ -74,54 +75,99 @@ export default function NewChatPage() {
         throw new Error(errData.error || 'Failed to get response');
       }
 
-      // Read the streaming response
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No response body');
 
       const decoder = new TextDecoder();
       let assistantContent = '';
+      let buffer = '';
       const assistantMsgId = `assistant-${Date.now()}`;
 
-      // Add assistant message placeholder
       setMessages((prev) => [...prev, { id: assistantMsgId, role: 'assistant', content: '' }]);
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
+          buffer += decoder.decode(value, { stream: true });
 
-        // Parse SSE data - the AI SDK sends data in a specific format
-        const lines = chunk.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('0:')) {
-            // Text content - parse the JSON string
+          // SSE: events separated by "\n\n", each "data: <json>\n" or "data: [DONE]\n"
+          const events = buffer.split('\n\n');
+          buffer = events.pop() ?? '';
+
+          for (const raw of events) {
+            const line = raw.trim();
+            if (!line.startsWith('data:')) continue;
+            const payload = line.slice(5).trim();
+            if (payload === '[DONE]') continue;
+
             try {
-              const textContent = JSON.parse(line.slice(2));
-              assistantContent += textContent;
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId ? { ...m, content: assistantContent } : m
-                )
-              );
-            } catch {
-              // Not JSON, might be raw text
-              assistantContent += line.slice(2);
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId ? { ...m, content: assistantContent } : m
-                )
-              );
+              const part = JSON.parse(payload) as {
+                type?: string;
+                delta?: string;
+                errorText?: string;
+              };
+              if (part.type === 'text-delta' && typeof part.delta === 'string') {
+                assistantContent += part.delta;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId ? { ...m, content: assistantContent } : m
+                  )
+                );
+              } else if (part.type === 'error' && typeof part.errorText === 'string') {
+                throw new Error(part.errorText);
+              }
+            } catch (e) {
+              if (e instanceof SyntaxError) continue;
+              throw e;
             }
           }
         }
+
+        // Process remaining buffer
+        const remaining = buffer.trim();
+        if (remaining.startsWith('data:') && remaining !== 'data: [DONE]') {
+          try {
+            const part = JSON.parse(remaining.slice(5).trim()) as {
+              type?: string;
+              delta?: string;
+            };
+            if (part.type === 'text-delta' && typeof part.delta === 'string') {
+              assistantContent += part.delta;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: assistantContent } : m
+          )
+        );
+      } catch (streamError) {
+        console.error('Stream error:', streamError);
+        throw streamError instanceof Error
+          ? streamError
+          : new Error('Failed to read stream response');
       }
 
-      // Save the assistant message to the database
       await addMessageAction(conversationId, 'assistant', assistantContent);
 
-      // Redirect to the conversation page
-      router.push(`/ai/chat/${conversationId}`);
+      // Hand off to [chatId] so it can render immediately without a loading flash
+      const title =
+        text.length > 50 ? text.substring(0, 47) + '...' : text;
+      const handoffKey = `ai-chat-handoff-${conversationId}`;
+      try {
+        sessionStorage.setItem(
+          handoffKey,
+          JSON.stringify({ conversationId, title, messages })
+        );
+      } catch {
+        /* ignore */
+      }
+      router.replace(`/ai/chat/${conversationId}`);
     } catch (err) {
       console.error('Chat error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');

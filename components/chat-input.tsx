@@ -79,7 +79,12 @@ export function ChatInput({
   // Handle form submission
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    console.warn('[Chat Stream] 0. ChatInput handleSubmit', {
+      hasValue: !!safeValue.trim(),
+      disabled,
+    });
     if (!safeValue.trim() || disabled) return;
+    console.warn('[Chat Stream] 0b. ChatInput calling onSubmit');
     onSubmit(e);
   };
 
