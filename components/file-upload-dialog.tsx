@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -14,12 +15,14 @@ import { Upload, FileText, X, CheckCircle, AlertCircle, Loader2 } from 'lucide-r
 import { prepareUploadAction, confirmUploadAction } from '@/lib/files/actions';
 import { useToast } from '@/hooks/use-toast';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES } from '@/lib/files/constants';
+import { driveQueryKeys } from '@/components/file-explorer';
 
 interface FileUploadDialogProps {
   isOpen: boolean;
   onClose: () => void;
   folderId: string | null;
-  onUploadComplete: () => void;
+  /** @deprecated Use TanStack Query invalidation instead */
+  onUploadComplete?: () => void;
 }
 
 type UploadState = 'idle' | 'preparing' | 'uploading' | 'confirming' | 'success' | 'error';
@@ -36,6 +39,7 @@ export function FileUploadDialog({
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const resetState = () => {
     setFile(null);
@@ -140,11 +144,16 @@ export function FileUploadDialog({
         description: `"${file.name}" uploaded successfully`,
       });
 
+      // Invalidate the files query to refresh the list
+      queryClient.invalidateQueries({
+        queryKey: driveQueryKeys.files(folderId),
+      });
+
       // Close after a brief delay to show success state
       setTimeout(() => {
         resetState();
         onClose();
-        onUploadComplete();
+        onUploadComplete?.(); // Keep for backwards compatibility
       }, 1000);
 
     } catch (err) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Folder,
@@ -13,10 +13,10 @@ import {
   Lock,
   Users,
   LockOpen,
-  Loader2,
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -35,8 +35,17 @@ import {
 } from '@/components/ui/context-menu';
 import { ManageAccessModal } from './manage-access-modal';
 import { EmptyState } from './empty-state';
-import { listFoldersAction, deleteFolderAction, renameFolderAction } from '@/lib/folders/actions';
-import { listFilesAction, deleteFileAction, renameFileAction, getDownloadUrlAction } from '@/lib/files/actions';
+import {
+  listFoldersAction,
+  deleteFolderAction,
+  renameFolderAction,
+} from '@/lib/folders/actions';
+import {
+  listFilesAction,
+  deleteFileAction,
+  renameFileAction,
+  getDownloadUrlAction,
+} from '@/lib/files/actions';
 import type { FolderWithAccess } from '@/lib/folders';
 import type { FileWithAccess } from '@/lib/files';
 import { RenameDialog } from './rename-dialog';
@@ -61,8 +70,10 @@ interface FileItem {
 interface FileExplorerProps {
   /** Parent folder ID. Null/undefined for root level. */
   parentFolderId?: string | null;
-  /** Callback when folder contents change */
-  onRefresh?: () => void;
+  /** Initial folders from SSR (required for SSR optimization) */
+  initialFolders?: FolderWithAccess[];
+  /** Initial files from SSR (required for SSR optimization) */
+  initialFiles?: FileWithAccess[];
   /** Callback to trigger create folder dialog */
   onCreateFolder?: () => void;
   /** Callback to trigger upload dialog */
@@ -70,12 +81,21 @@ interface FileExplorerProps {
 }
 
 // ============================================================================
+// QUERY KEYS
+// ============================================================================
+
+export const driveQueryKeys = {
+  all: ['drive'] as const,
+  folders: (parentId: string | null) =>
+    [...driveQueryKeys.all, 'folders', parentId ?? 'root'] as const,
+  files: (parentId: string | null) =>
+    [...driveQueryKeys.all, 'files', parentId ?? 'root'] as const,
+};
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
-/**
- * Converts a FolderWithAccess to a FileItem for display.
- */
 function folderToFileItem(folder: FolderWithAccess): FileItem {
   return {
     id: folder.id,
@@ -86,9 +106,6 @@ function folderToFileItem(folder: FolderWithAccess): FileItem {
   };
 }
 
-/**
- * Converts a FileWithAccess to a FileItem for display.
- */
 function fileToFileItem(file: FileWithAccess): FileItem {
   return {
     id: file.id,
@@ -100,21 +117,18 @@ function fileToFileItem(file: FileWithAccess): FileItem {
   };
 }
 
-/**
- * Determines the display file type from MIME type.
- */
-function getFileType(mimeType: string | null): 'pdf' | 'doc' | 'xls' | 'image' | 'other' {
+function getFileType(
+  mimeType: string | null
+): 'pdf' | 'doc' | 'xls' | 'image' | 'other' {
   if (!mimeType) return 'other';
   if (mimeType === 'application/pdf') return 'pdf';
   if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return 'xls';
+  if (mimeType.includes('spreadsheet') || mimeType.includes('excel'))
+    return 'xls';
   if (mimeType.includes('document') || mimeType.includes('word')) return 'doc';
   return 'other';
 }
 
-/**
- * Formats a date string for display.
- */
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -124,7 +138,8 @@ function formatDate(dateStr: string): string {
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
   if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${diffDays >= 14 ? 's' : ''} ago`;
+  if (diffDays < 30)
+    return `${Math.floor(diffDays / 7)} week${diffDays >= 14 ? 's' : ''} ago`;
   return date.toLocaleDateString();
 }
 
@@ -132,154 +147,168 @@ function formatDate(dateStr: string): string {
 // COMPONENT
 // ============================================================================
 
-export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUpload }: FileExplorerProps) {
+export function FileExplorer({
+  parentFolderId,
+  initialFolders = [],
+  initialFiles = [],
+  onCreateFolder,
+  onUpload,
+}: FileExplorerProps) {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [showAccessModal, setShowAccessModal] = useState(false);
-
-  // Data state
-  const [items, setItems] = useState<FileItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Dialog state
   const [renameItem, setRenameItem] = useState<FileItem | null>(null);
   const [deleteItem, setDeleteItem] = useState<FileItem | null>(null);
   const [moveItem, setMoveItem] = useState<FileItem | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isRenaming, setIsRenaming] = useState(false);
 
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  // Fetch folders and files
-  const fetchItems = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const normalizedParentId = parentFolderId ?? null;
 
-    try {
-      // Fetch both folders and files in parallel
-      const [foldersResult, filesResult] = await Promise.all([
-        listFoldersAction(parentFolderId),
-        listFilesAction(parentFolderId),
-      ]);
+  // Query for folders - seeded with SSR data
+  const {
+    data: folders = [],
+    isError: foldersError,
+    refetch: refetchFolders,
+  } = useQuery({
+    queryKey: driveQueryKeys.folders(normalizedParentId),
+    queryFn: async () => {
+      const result = await listFoldersAction(normalizedParentId);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    initialData: initialFolders,
+    staleTime: 60 * 1000, // Consider data fresh for 1 minute
+    refetchOnMount: false, // Don't refetch on mount - we have SSR data
+  });
 
-      if (!foldersResult.success) {
-        setError(foldersResult.error);
-        setItems([]);
-        return;
-      }
+  // Query for files - seeded with SSR data
+  const {
+    data: files = [],
+    isError: filesError,
+    refetch: refetchFiles,
+  } = useQuery({
+    queryKey: driveQueryKeys.files(normalizedParentId),
+    queryFn: async () => {
+      const result = await listFilesAction(normalizedParentId);
+      if (!result.success) throw new Error(result.error);
+      return result.data;
+    },
+    initialData: initialFiles,
+    staleTime: 60 * 1000,
+    refetchOnMount: false,
+  });
 
-      // Convert to FileItems - folders first, then files
-      const folderItems = foldersResult.data.map(folderToFileItem);
-      
-      // Handle file listing errors
-      if (!filesResult.success) {
-        console.error('Failed to list files:', filesResult.error);
-        // Don't fail completely - still show folders even if files fail
-        toast({
-          title: 'Warning',
-          description: 'Some files could not be loaded. ' + (filesResult.error || 'Unknown error'),
-          variant: 'destructive',
-        });
-      }
-      
-      const fileItems = filesResult.success ? filesResult.data.map(fileToFileItem) : [];
+  // Combine folders and files into display items
+  const items = useMemo(() => {
+    const folderItems = folders.map(folderToFileItem);
+    const fileItems = files.map(fileToFileItem);
+    return [...folderItems, ...fileItems];
+  }, [folders, files]);
 
-      setItems([...folderItems, ...fileItems]);
-    } catch (err) {
-      console.error('Failed to fetch items:', err);
-      setError('Failed to load items');
-      setItems([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [parentFolderId]);
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (item: FileItem) => {
+      const result =
+        item.type === 'folder'
+          ? await deleteFolderAction(item.id)
+          : await deleteFileAction(item.id);
 
-  // Initial fetch
-  useEffect(() => {
-    fetchItems();
-  }, [fetchItems]);
-
-  // Handle rename (folders and files)
-  const handleRename = async (newName: string) => {
-    if (!renameItem) return;
-
-    setIsRenaming(true);
-    try {
-      const result = renameItem.type === 'folder'
-        ? await renameFolderAction({ folderId: renameItem.id, newName })
-        : await renameFileAction(renameItem.id, newName);
-
-      if (!result.success) {
-        toast({
-          title: 'Rename failed',
-          description: result.error,
-          variant: 'destructive',
-        });
-        return;
-      }
-
+      if (!result.success) throw new Error(result.error);
+      return { item, result };
+    },
+    onSuccess: ({ item }) => {
       toast({
-        title: `${renameItem.type === 'folder' ? 'Folder' : 'File'} renamed`,
+        title: `${item.type === 'folder' ? 'Folder' : 'File'} deleted`,
+        description: `"${item.name}" moved to trash`,
+      });
+      // Invalidate only the relevant query
+      if (item.type === 'folder') {
+        queryClient.invalidateQueries({
+          queryKey: driveQueryKeys.folders(normalizedParentId),
+        });
+      } else {
+        queryClient.invalidateQueries({
+          queryKey: driveQueryKeys.files(normalizedParentId),
+        });
+      }
+      setDeleteItem(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Delete failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Rename mutation
+  const renameMutation = useMutation({
+    mutationFn: async ({
+      item,
+      newName,
+    }: {
+      item: FileItem;
+      newName: string;
+    }) => {
+      const result =
+        item.type === 'folder'
+          ? await renameFolderAction({ folderId: item.id, newName })
+          : await renameFileAction(item.id, newName);
+
+      if (!result.success) throw new Error(result.error);
+      return { item, newName, result };
+    },
+    onSuccess: ({ item, newName }) => {
+      toast({
+        title: `${item.type === 'folder' ? 'Folder' : 'File'} renamed`,
         description: `Renamed to "${newName}"`,
       });
-
-      setRenameItem(null);
-      fetchItems();
-      onRefresh?.();
-    } catch (err) {
-      toast({
-        title: 'Error',
-        description: 'An unexpected error occurred',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsRenaming(false);
-    }
-  };
-
-  // Handle delete (folders and files)
-  const handleDelete = async () => {
-    if (!deleteItem) return;
-
-    setIsDeleting(true);
-    try {
-      const result = deleteItem.type === 'folder'
-        ? await deleteFolderAction(deleteItem.id)
-        : await deleteFileAction(deleteItem.id);
-
-      if (!result.success) {
-        toast({
-          title: 'Delete failed',
-          description: result.error,
-          variant: 'destructive',
+      // Invalidate only the relevant query
+      if (item.type === 'folder') {
+        queryClient.invalidateQueries({
+          queryKey: driveQueryKeys.folders(normalizedParentId),
         });
-        return;
+      } else {
+        queryClient.invalidateQueries({
+          queryKey: driveQueryKeys.files(normalizedParentId),
+        });
       }
-
+      setRenameItem(null);
+    },
+    onError: (error: Error) => {
       toast({
-        title: `${deleteItem.type === 'folder' ? 'Folder' : 'File'} deleted`,
-        description: `"${deleteItem.name}" moved to trash`,
-      });
-
-      setDeleteItem(null);
-      fetchItems();
-      onRefresh?.();
-    } catch (err) {
-      toast({
-        title: 'Error',
-        description: 'An unexpected error occurred',
+        title: 'Rename failed',
+        description: error.message,
         variant: 'destructive',
       });
-    } finally {
-      setIsDeleting(false);
-    }
+    },
+  });
+
+  // Handle rename
+  const handleRename = (newName: string) => {
+    if (!renameItem) return;
+    renameMutation.mutate({ item: renameItem, newName });
   };
 
-  // Handle move (folders and files)
+  // Handle delete
+  const handleDelete = () => {
+    if (!deleteItem) return;
+    deleteMutation.mutate(deleteItem);
+  };
+
+  // Handle move complete - invalidate both queries
   const handleMoveComplete = () => {
-    fetchItems();
-    onRefresh?.();
+    queryClient.invalidateQueries({
+      queryKey: driveQueryKeys.folders(normalizedParentId),
+    });
+    queryClient.invalidateQueries({
+      queryKey: driveQueryKeys.files(normalizedParentId),
+    });
   };
 
   // Handle file download
@@ -287,12 +316,16 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
     if (item.type !== 'file') return;
 
     try {
-      const result = await getDownloadUrlAction({ fileId: item.id, forceDownload: true });
+      const result = await getDownloadUrlAction({
+        fileId: item.id,
+        forceDownload: true,
+      });
 
       if (!result.success) {
         toast({
           title: 'Download failed',
-          description: result.error || 'Unable to download file. Please try again.',
+          description:
+            result.error || 'Unable to download file. Please try again.',
           variant: 'destructive',
         });
         return;
@@ -307,8 +340,6 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
         return;
       }
 
-      // Open signed URL in new tab to trigger download
-      // Use a temporary anchor element for better download handling
       const link = document.createElement('a');
       link.href = result.data.signedUrl;
       link.target = '_blank';
@@ -320,7 +351,8 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
       console.error('Download error:', err);
       toast({
         title: 'Error',
-        description: err instanceof Error ? err.message : 'Failed to download file',
+        description:
+          err instanceof Error ? err.message : 'Failed to download file',
         variant: 'destructive',
       });
     }
@@ -354,22 +386,19 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
     setShowAccessModal(true);
   };
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  // Handle manual refresh
+  const handleRefresh = () => {
+    refetchFolders();
+    refetchFiles();
+  };
 
   // Error state
-  if (error) {
+  if (foldersError || filesError) {
     return (
       <div className="flex flex-col items-center justify-center py-12 gap-4">
         <AlertCircle className="w-12 h-12 text-destructive" />
-        <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={fetchItems} className="gap-2">
+        <p className="text-muted-foreground">Failed to load items</p>
+        <Button variant="outline" onClick={handleRefresh} className="gap-2">
           <RefreshCw className="w-4 h-4" />
           Try Again
         </Button>
@@ -408,7 +437,10 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
       {viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {items.map((item) => {
-            const itemLink = item.type === 'folder' ? `/drive/folder/${item.id}` : `/drive/file/${item.id}`;
+            const itemLink =
+              item.type === 'folder'
+                ? `/drive/folder/${item.id}`
+                : `/drive/file/${item.id}`;
             return (
               <ContextMenu key={item.id}>
                 <ContextMenuTrigger asChild>
@@ -422,7 +454,10 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
                           {getFileIcon(item)}
                         </div>
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
+                          <DropdownMenuTrigger
+                            asChild
+                            onClick={(e) => e.preventDefault()}
+                          >
                             <Button
                               variant="ghost"
                               size="icon"
@@ -438,24 +473,46 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
                               </Link>
                             </DropdownMenuItem>
                             {item.type === 'file' && (
-                              <DropdownMenuItem onClick={(e) => { e.preventDefault(); handleDownload(item); }}>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  handleDownload(item);
+                                }}
+                              >
                                 Download
                               </DropdownMenuItem>
                             )}
-                            {(item.access === 'admin' || item.access === 'editor') && (
-                              <DropdownMenuItem onClick={(e) => { e.preventDefault(); setRenameItem(item); }}>
+                            {(item.access === 'admin' ||
+                              item.access === 'editor') && (
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setRenameItem(item);
+                                }}
+                              >
                                 Rename
                               </DropdownMenuItem>
                             )}
                             {item.access === 'admin' && (
-                              <DropdownMenuItem onClick={(e) => { e.preventDefault(); setMoveItem(item); }}>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setMoveItem(item);
+                                }}
+                              >
                                 Move
                               </DropdownMenuItem>
                             )}
-                            {(item.access === 'admin' || item.access === 'editor') && (
+                            {(item.access === 'admin' ||
+                              item.access === 'editor') && (
                               <>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={(e) => { e.preventDefault(); handleManageAccess(item); }}>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    handleManageAccess(item);
+                                  }}
+                                >
                                   Manage Access
                                 </DropdownMenuItem>
                               </>
@@ -465,7 +522,10 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   className="text-destructive"
-                                  onClick={(e) => { e.preventDefault(); setDeleteItem(item); }}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setDeleteItem(item);
+                                  }}
                                 >
                                   Delete
                                 </DropdownMenuItem>
@@ -475,14 +535,21 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
                         </DropdownMenu>
                       </div>
 
-                      <h3 className="font-500 text-foreground truncate mb-1 text-sm leading-snug">{item.name}</h3>
+                      <h3 className="font-500 text-foreground truncate mb-1 text-sm leading-snug">
+                        {item.name}
+                      </h3>
 
                       {item.owner && (
-                        <p className="text-xs text-muted-foreground mb-3">{item.owner}</p>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          {item.owner}
+                        </p>
                       )}
 
                       <div className="flex items-center justify-between">
-                        <Badge variant="secondary" className="text-xs gap-1.5 px-2 py-0.5 bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full">
+                        <Badge
+                          variant="secondary"
+                          className="text-xs gap-1.5 px-2 py-0.5 bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full"
+                        >
                           {getAccessIcon(item.access)}
                           <span className="font-400 text-xs">{item.access}</span>
                         </Badge>
@@ -549,7 +616,10 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
           </div>
 
           {items.map((item) => {
-            const itemLink = item.type === 'folder' ? `/drive/folder/${item.id}` : `/drive/file/${item.id}`;
+            const itemLink =
+              item.type === 'folder'
+                ? `/drive/folder/${item.id}`
+                : `/drive/file/${item.id}`;
             return (
               <ContextMenu key={item.id}>
                 <ContextMenuTrigger asChild>
@@ -562,7 +632,9 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
                         <div className="group-hover:scale-110 transition-transform duration-200">
                           {getFileIcon(item)}
                         </div>
-                        <span className="font-400 text-foreground text-sm">{item.name}</span>
+                        <span className="font-400 text-foreground text-sm">
+                          {item.name}
+                        </span>
                       </div>
                       <div className="text-sm text-muted-foreground hidden md:block">
                         {item.owner || '-'}
@@ -570,14 +642,24 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
                       <div className="text-sm text-muted-foreground hidden md:block">
                         {item.lastModified || '-'}
                       </div>
-                      <Badge variant="secondary" className="text-xs gap-1.5 w-fit bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full px-2 py-0.5">
+                      <Badge
+                        variant="secondary"
+                        className="text-xs gap-1.5 w-fit bg-muted/60 text-muted-foreground hover:bg-muted border-0 rounded-full px-2 py-0.5"
+                      >
                         {getAccessIcon(item.access)}
                         <span className="font-400 text-xs">{item.access}</span>
                       </Badge>
-                      <div className="flex justify-end" onClick={(e) => e.preventDefault()}>
+                      <div
+                        className="flex justify-end"
+                        onClick={(e) => e.preventDefault()}
+                      >
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted/50">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 hover:bg-muted/50"
+                            >
                               <MoreVertical className="w-4 h-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -588,24 +670,34 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
                               </Link>
                             </DropdownMenuItem>
                             {item.type === 'file' && (
-                              <DropdownMenuItem onClick={() => handleDownload(item)}>
+                              <DropdownMenuItem
+                                onClick={() => handleDownload(item)}
+                              >
                                 Download
                               </DropdownMenuItem>
                             )}
-                            {(item.access === 'admin' || item.access === 'editor') && (
-                              <DropdownMenuItem onClick={() => setRenameItem(item)}>
+                            {(item.access === 'admin' ||
+                              item.access === 'editor') && (
+                              <DropdownMenuItem
+                                onClick={() => setRenameItem(item)}
+                              >
                                 Rename
                               </DropdownMenuItem>
                             )}
                             {item.access === 'admin' && (
-                              <DropdownMenuItem onClick={() => setMoveItem(item)}>
+                              <DropdownMenuItem
+                                onClick={() => setMoveItem(item)}
+                              >
                                 Move
                               </DropdownMenuItem>
                             )}
-                            {(item.access === 'admin' || item.access === 'editor') && (
+                            {(item.access === 'admin' ||
+                              item.access === 'editor') && (
                               <>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => handleManageAccess(item)}>
+                                <DropdownMenuItem
+                                  onClick={() => handleManageAccess(item)}
+                                >
                                   Manage Access
                                 </DropdownMenuItem>
                               </>
@@ -689,7 +781,7 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
         itemName={renameItem?.name || ''}
         itemType={renameItem?.type || 'folder'}
         onRename={handleRename}
-        isLoading={isRenaming}
+        isLoading={renameMutation.isPending}
       />
 
       <DeleteConfirmDialog
@@ -698,7 +790,7 @@ export function FileExplorer({ parentFolderId, onRefresh, onCreateFolder, onUplo
         itemName={deleteItem?.name || ''}
         itemType={deleteItem?.type || 'folder'}
         onConfirm={handleDelete}
-        isLoading={isDeleting}
+        isLoading={deleteMutation.isPending}
       />
 
       {moveItem && (

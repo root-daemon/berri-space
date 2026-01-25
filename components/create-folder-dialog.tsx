@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -15,12 +16,14 @@ import { Label } from '@/components/ui/label';
 import { Loader2 } from 'lucide-react';
 import { createFolderAction } from '@/lib/folders/actions';
 import { useToast } from '@/hooks/use-toast';
+import { driveQueryKeys } from '@/components/file-explorer';
 
 interface CreateFolderDialogProps {
   isOpen: boolean;
   onClose: () => void;
   parentFolderId?: string | null;
   ownerTeamId: string;
+  /** @deprecated Use TanStack Query invalidation instead */
   onCreated?: () => void;
 }
 
@@ -34,6 +37,7 @@ export function CreateFolderDialog({
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -69,8 +73,13 @@ export function CreateFolderDialog({
         description: `"${trimmedName}" has been created`,
       });
 
+      // Invalidate the folders query to refresh the list
+      queryClient.invalidateQueries({
+        queryKey: driveQueryKeys.folders(parentFolderId ?? null),
+      });
+
       onClose();
-      onCreated?.();
+      onCreated?.(); // Keep for backwards compatibility
     } catch (err) {
       toast({
         title: 'Error',

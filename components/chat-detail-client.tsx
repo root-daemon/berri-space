@@ -4,13 +4,17 @@ import React, { useState, useRef, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/app-header';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ArrowLeft, Sparkles } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ChatInput } from '@/components/chat-input';
-import { createConversationAction, addMessageAction } from '@/lib/ai/chat-actions';
+import { addMessageAction } from '@/lib/ai/chat-actions';
 import { useChatStream } from '@/hooks/use-chat-stream';
-import type { MentionedFile } from '@/lib/ai/chat-types';
+import type { MentionedFile, ConversationWithMessages } from '@/lib/ai/chat-types';
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 interface Message {
   id: string;
@@ -18,13 +22,38 @@ interface Message {
   content: string;
 }
 
-export default function NewChatPage() {
+interface ChatDetailClientProps {
+  /** Conversation data from SSR (null if not found) */
+  conversation: ConversationWithMessages | null;
+  /** Chat ID for this conversation */
+  chatId: string;
+  /** Error message if conversation couldn't be loaded */
+  error?: string | null;
+}
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
+
+export function ChatDetailClient({
+  conversation: initialConversation,
+  chatId,
+  error: initialError,
+}: ChatDetailClientProps) {
   const router = useRouter();
+
   const [input, setInput] = useState('');
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>(() =>
+    initialConversation?.messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+    })) || []
+  );
+  const [conversation] = useState(initialConversation);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(initialError || null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Batched streaming hook
@@ -33,21 +62,29 @@ export default function NewChatPage() {
     onError: setError,
   });
 
+  // Scroll to bottom when messages change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
 
+  // Redirect to history if conversation not found
+  useEffect(() => {
+    if (!conversation && initialError) {
+      router.push('/ai/history');
+    }
+  }, [conversation, initialError, router]);
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const text = input.trim();
-    if (!text || isLoading) return;
+    if (!text || isSubmitting) return;
 
     setError(null);
-    setIsLoading(true);
+    setIsSubmitting(true);
 
-    // Add user message to UI immediately
+    // Add user message to UI immediately (optimistic)
     const userMsgId = `user-${Date.now()}`;
     setMessages((prev) => [...prev, { id: userMsgId, role: 'user', content: text }]);
     setInput('');
@@ -56,24 +93,26 @@ export default function NewChatPage() {
     setMentionedFiles([]);
 
     try {
-      // Create the conversation with the first message
-      const createResult = await createConversationAction(text, fileIds);
+      // Save user message to database (fire and forget - don't block stream)
+      const saveUserMessage = addMessageAction(chatId, 'user', text, fileIds);
 
-      if (!createResult.success) {
-        throw new Error(createResult.error);
-      }
+      // Build messages array for API (include history for context)
+      const apiMessages = [...messages, { role: 'user' as const, content: text }].map(
+        (m) => ({
+          role: m.role,
+          content: m.content,
+        })
+      );
 
-      const conversationId = createResult.data.conversationId;
-
-      // Call the chat API to get the AI response (SSE stream)
+      // Start streaming response
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          messages: [{ role: 'user', content: text }],
+          messages: apiMessages,
           fileIds,
-          conversationId,
+          conversationId: chatId,
         }),
       });
 
@@ -90,44 +129,47 @@ export default function NewChatPage() {
         throw new Error(result.error || 'Stream failed');
       }
 
-      // Save assistant message
-      await addMessageAction(conversationId, 'assistant', result.content);
-
-      // Hand off to [chatId] so it can render immediately without a loading flash
-      const title = text.length > 50 ? text.substring(0, 47) + '...' : text;
-      const handoffKey = `ai-chat-handoff-${conversationId}`;
-
-      // Get current messages for handoff (need to read from DOM since state might not be updated)
-      const finalMessages = [
-        { id: userMsgId, role: 'user' as const, content: text },
-        { id: assistantMsgId, role: 'assistant' as const, content: result.content },
-      ];
-
-      try {
-        sessionStorage.setItem(
-          handoffKey,
-          JSON.stringify({ conversationId, title, messages: finalMessages })
-        );
-      } catch {
-        /* ignore */
-      }
-      router.replace(`/ai/chat/${conversationId}`);
+      // Wait for user message to be saved, then save assistant message
+      await saveUserMessage;
+      await addMessageAction(chatId, 'assistant', result.content);
     } catch (err) {
-      console.error('Chat error:', err);
+      console.error('Chat submit error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
       // Remove the user message on error
       setMessages((prev) => prev.filter((m) => m.id !== userMsgId));
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
+
+  // Error state (not found)
+  if (!conversation && error) {
+    return (
+      <>
+        <AppHeader
+          breadcrumbs={[
+            { label: 'AI History', href: '/ai/history' },
+            { label: 'Chat' },
+          ]}
+        />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <Link href="/ai/history">
+              <Button>Back to History</Button>
+            </Link>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
       <AppHeader
         breadcrumbs={[
           { label: 'AI History', href: '/ai/history' },
-          { label: 'New Chat' },
+          { label: conversation?.title || 'Chat' },
         ]}
       />
 
@@ -146,7 +188,9 @@ export default function NewChatPage() {
                 </Button>
               </Link>
               <div>
-                <h1 className="text-xl font-500 text-foreground">New Chat</h1>
+                <h1 className="text-xl font-500 text-foreground truncate max-w-md">
+                  {conversation?.title || 'AI Chat'}
+                </h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Ask questions about your documents
                 </p>
@@ -159,16 +203,9 @@ export default function NewChatPage() {
         <ScrollArea className="flex-1">
           <div className="max-w-4xl mx-auto p-5 space-y-4">
             {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-64 text-center">
-                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                  <Sparkles className="w-8 h-8 text-primary" />
-                </div>
-                <h2 className="text-lg font-500 text-foreground mb-2">
-                  Start a new conversation
-                </h2>
-                <p className="text-sm text-muted-foreground max-w-md">
-                  Ask questions about your documents. Use @ to mention specific files
-                  and focus the AI's answers on those documents.
+              <div className="flex items-center justify-center h-64">
+                <p className="text-muted-foreground text-center">
+                  Start a conversation by asking a question
                 </p>
               </div>
             )}
@@ -187,13 +224,13 @@ export default function NewChatPage() {
                 >
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">
                     {message.content ||
-                      (isLoading && message.role === 'assistant' ? '...' : '')}
+                      (isSubmitting && message.role === 'assistant' ? '...' : '')}
                   </p>
                 </div>
               </div>
             ))}
 
-            {isLoading &&
+            {isSubmitting &&
               messages.length > 0 &&
               messages[messages.length - 1]?.role === 'user' && (
                 <div className="flex justify-start">
@@ -240,7 +277,7 @@ export default function NewChatPage() {
               onRemoveMention={(fileId) =>
                 setMentionedFiles(mentionedFiles.filter((f) => f.fileId !== fileId))
               }
-              disabled={isLoading}
+              disabled={isSubmitting}
               placeholder="Ask a question about your documents..."
             />
           </div>
