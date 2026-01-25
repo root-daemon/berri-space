@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react"
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { SignOutButton } from '@clerk/nextjs';
 import {
@@ -20,6 +21,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { getUserTeamsAction } from '@/lib/teams/actions';
 import type { DbTeam } from '@/lib/supabase/types';
 
@@ -51,11 +53,18 @@ export function AppSidebar() {
     <aside className="w-64 h-screen bg-background border-r border-border/20 overflow-y-auto flex flex-col">
       {/* Logo */}
       <div className="p-6 border-b border-border/20">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center transform hover:scale-105 transition-transform duration-200">
-            <span className="text-primary-foreground font-bold text-lg">D</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Image
+              src="/favicon.png"
+              alt="berri-space"
+              width={32}
+              height={32}
+              className="transform hover:scale-105 transition-transform duration-200"
+            />
+            <h1 className="text-lg font-500 text-foreground">berri-space</h1>
           </div>
-          <h1 className="text-lg font-500 text-foreground">DriveHub</h1>
+          <ThemeToggle />
         </div>
       </div>
 

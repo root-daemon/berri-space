@@ -14,7 +14,8 @@
       "mcp__supabase__generate_typescript_types",
       "mcp__supabase__execute_sql",
       "mcp__supabase__get_logs",
-      "Bash(npm run lint:*)"
+      "Bash(npm run lint:*)",
+      "Bash(xargs cat:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

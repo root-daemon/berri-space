@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useUser, SignOutButton } from '@clerk/nextjs';
+import { useTheme } from 'next-themes';
 import { AppHeader } from '@/components/app-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,7 +36,8 @@ type OrganizationMember = {
 
 export default function SettingsPage() {
   const { user, isLoaded } = useUser();
-  const [theme, setTheme] = useState('system');
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean | null>(null);
   const [members, setMembers] = useState<OrganizationMember[]>([]);
@@ -45,6 +47,11 @@ export default function SettingsPage() {
   const [isInviting, setIsInviting] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Prevent hydration mismatch for theme
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Check if user is super_admin and load members
   useEffect(() => {
@@ -274,9 +281,9 @@ export default function SettingsPage() {
 
               <div>
                 <p className="text-sm font-500 text-foreground mb-3">Theme</p>
-                <Select value={theme} onValueChange={setTheme}>
+                <Select value={mounted ? theme : 'system'} onValueChange={setTheme} disabled={!mounted}>
                   <SelectTrigger className="border-border/20 hover:border-primary/30 transition-colors duration-200">
-                    <SelectValue />
+                    <SelectValue placeholder="Select theme" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="light">
@@ -299,6 +306,10 @@ export default function SettingsPage() {
                     </SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {theme === 'system' ? 'Automatically matches your system preference' :
+                   theme === 'dark' ? 'Always use dark mode' : 'Always use light mode'}
+                </p>
               </div>
             </div>
 

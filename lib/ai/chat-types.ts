@@ -23,11 +23,34 @@ export interface ChatRequest {
 // RAG CONTEXT TYPES
 // ============================================================================
 
+/**
+ * Context selection mode based on user input.
+ *
+ * - explicit_files: User mentioned specific files with @file
+ * - automatic_search: No files mentioned, search all accessible documents
+ */
+export type ContextMode = 'explicit_files' | 'automatic_search';
+
 export interface ChatContext {
   fileId: string;
   fileName: string;
   chunks: string[];
   similarity: number;
+}
+
+/**
+ * Result of context retrieval including mode metadata.
+ * Used by prompt builder to construct appropriate prompts.
+ */
+export interface ContextRetrievalResult {
+  /** The retrieved document context (may be empty) */
+  context: ChatContext[];
+  /** How context was selected */
+  mode: ContextMode;
+  /** Whether any document context was found */
+  hasDocumentContext: boolean;
+  /** File IDs that were explicitly requested (only for explicit_files mode) */
+  requestedFileIds?: string[];
 }
 
 // ============================================================================
@@ -51,6 +74,19 @@ export interface AiReadyFile {
 export interface ChatPrompt {
   systemPrompt: string;
   userPrompt: string;
+}
+
+/**
+ * Extended prompt with context metadata for response transparency.
+ * Includes information about how context was selected.
+ */
+export interface ChatPromptWithMetadata extends ChatPrompt {
+  /** Context mode used for this prompt */
+  mode: ContextMode;
+  /** Whether document context was included */
+  hasDocumentContext: boolean;
+  /** Number of files used as context */
+  fileCount: number;
 }
 
 // ============================================================================

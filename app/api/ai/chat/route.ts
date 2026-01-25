@@ -91,16 +91,23 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. Retrieve RAG context
-    const context = await retrieveContext(
+    // 4. Retrieve RAG context with mode-aware selection
+    // If fileIds provided: search ONLY within those files (explicit_files mode)
+    // If no fileIds: search ALL accessible documents (automatic_search mode)
+    const contextResult = await retrieveContext(
       user.id,
       organization.id,
       query,
       fileIds
     );
 
-    // 5. Build prompts
-    const { systemPrompt, userPrompt } = buildChatPrompt(context, normalized);
+    // 5. Build prompts based on context availability
+    // - Document context found → answer from documents
+    // - No context found → fallback to general knowledge with disclaimer
+    const { systemPrompt, userPrompt, hasDocumentContext, mode } = buildChatPrompt(contextResult, normalized);
+
+    // Log context mode for debugging
+    console.log(`[AI Chat] Mode: ${mode}, Has context: ${hasDocumentContext}, Query: "${query.substring(0, 50)}..."`);
 
     // 6. Stream response from Gemini 2.5 Flash (UI message stream for useChat)
     const result = streamText({

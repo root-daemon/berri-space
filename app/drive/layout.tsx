@@ -4,7 +4,7 @@ import { Metadata } from 'next';
 import { getDbUser } from '@/lib/auth';
 
 export const metadata: Metadata = {
-  title: 'My Drive - DriveHub',
+  title: 'My Drive - berri-space',
   description: 'Manage your documents and files',
 };
 

@@ -6,15 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,11 +22,7 @@ import {
   Shield,
   Search,
   X,
-  Check,
   Loader2,
-  Trash2,
-  Eye,
-  EyeOff,
   AlertTriangle,
 } from 'lucide-react';
 import {

@@ -1,8 +1,8 @@
-# DriveHub Frontend Navigation Map
+# berri-space Frontend Navigation Map
 
 ## Application Structure
 
-DriveHub is a modern document management SaaS application with the following complete frontend structure:
+berri-space is a modern document management SaaS application with the following complete frontend structure:
 
 ### Core Routes
 
@@ -170,7 +170,9 @@ All navigation components are fully responsive and maintain functionality across
 
 ## Design System
 
-- Primary Color: Teal (#028373)
+- Primary Color: berri-space Teal (#056a5e)
+- Accent Color: berri-space Accent (#057d6f)
 - Minimal borders using `border/20` opacity
 - Smooth animations on all interactions
 - Premium SaaS-style spacing and typography
+- Full dark/light theme support with system preference detection

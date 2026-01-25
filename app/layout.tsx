@@ -1,35 +1,39 @@
 import React from "react"
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import localFont from 'next/font/local'
 import { Analytics } from '@vercel/analytics/next'
 import { ClerkProvider } from '@clerk/nextjs'
 import { QueryProvider } from '@/components/query-provider'
 import { CommandSearchProvider } from '@/components/command-search'
+import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const instrumentSans = localFont({
+  src: [
+    {
+      path: '../fonts/InstrumentSans-VariableFont_wdth,wght.ttf',
+      weight: '100 900',
+      style: 'normal',
+    },
+    {
+      path: '../fonts/InstrumentSans-Italic-VariableFont_wdth,wght.ttf',
+      weight: '100 900',
+      style: 'italic',
+    },
+  ],
+  variable: '--font-instrument-sans',
+  display: 'swap',
+  preload: true,
+  fallback: ['system-ui', 'sans-serif'],
+});
 
 export const metadata: Metadata = {
-  title: 'DriveHub - Document Management',
+  title: 'berri-space - Document Management',
   description: 'Modern document management and collaboration platform',
   generator: 'v0.app',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: '/favicon.png',
+    apple: '/favicon.png',
   },
 }
 
@@ -40,13 +44,20 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="en">
-        <body className={`font-sans antialiased`}>
-          <QueryProvider>
-            <CommandSearchProvider>
-              {children}
-            </CommandSearchProvider>
-          </QueryProvider>
+      <html lang="en" suppressHydrationWarning>
+        <body className={`${instrumentSans.variable} font-sans antialiased`}>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange={false}
+          >
+            <QueryProvider>
+              <CommandSearchProvider>
+                {children}
+              </CommandSearchProvider>
+            </QueryProvider>
+          </ThemeProvider>
           <Analytics />
         </body>
       </html>

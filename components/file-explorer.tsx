@@ -447,7 +447,7 @@ export function FileExplorer({
                   <div className="block">
                     <Link
                       href={itemLink}
-                      className="bg-card rounded-xl p-5 hover:shadow-lg transition-all duration-200 ease-out hover:scale-105 hover:-translate-y-0.5 cursor-pointer group border border-transparent hover:border-primary/10 hover:bg-primary/2 active:scale-95 active:transition-transform active:duration-75 block"
+                      className="bg-card rounded-xl p-5 hover:shadow-lg transition-all duration-200 ease-out hover:scale-105 hover:-translate-y-0.5 cursor-pointer group border  hover:border-primary/10 hover:bg-primary/2 active:scale-95 active:transition-transform active:duration-75 block"
                     >
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1 transform group-hover:scale-110 transition-transform duration-200">
