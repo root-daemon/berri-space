@@ -1,0 +1,16 @@
+# Web Extraction Service Dependencies
+
+# Playwright for JavaScript rendering
+playwright==1.48.0
+
+# FastAPI for HTTP API wrapper
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+
+# Content extraction
+readability-lxml==0.8.1
+beautifulsoup4==4.12.3
+lxml[html_clean]==5.3.0
+
+# URL validation
+validators==0.34.0

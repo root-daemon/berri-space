@@ -395,12 +395,3 @@ sequenceDiagram
     C-->>U: Streaming reply
 ```
 
----
-
-## References
-
-- **Project rules**: `CLAUDE.md`  
-- **Schema**: `docs/schema.md`  
-- **RLS**: `docs/rls-policies.md`  
-- **Permissions**: `lib/permissions/CLAUDE.md`, `permissions.md`  
-- **AI**: `lib/ai/CLAUDE.md`

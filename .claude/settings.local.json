@@ -15,7 +15,10 @@
       "mcp__supabase__execute_sql",
       "mcp__supabase__get_logs",
       "Bash(npm run lint:*)",
-      "Bash(xargs cat:*)"
+      "Bash(xargs cat:*)",
+      "Bash(npx next lint:*)",
+      "Bash(npx eslint:*)",
+      "Bash(node:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -1,20 +1,32 @@
 /**
  * AI Chat API Route
  *
- * Handles streaming chat requests with RAG (Retrieval-Augmented Generation).
+ * Handles streaming chat requests with NotebookLM-style RAG (Retrieval-Augmented Generation).
  * Uses UI message stream protocol for useChat + DefaultChatTransport.
  *
  * Flow:
  * 1. Authenticate user
  * 2. Validate file access (if fileIds provided)
- * 3. Retrieve relevant context via RAG
- * 4. Build prompts
+ * 3. Retrieve context via extended RAG (internal docs + external web fallback)
+ * 4. Build prompts based on context mode
  * 5. Stream response from Gemini 2.5
+ *
+ * CONTEXT SELECTION DECISION TREE:
+ * 1. User mentions @file → search ONLY those files
+ *    - Found → "Based on your documents..."
+ *    - Not found → General knowledge with disclaimer
+ * 2. No @file mention → search ALL accessible documents
+ *    - Found → "Based on your documents..."
+ *    - Not found → Trigger external web search
+ *      - External found → "I couldn't find this in your documents, but online..."
+ *      - External empty → General knowledge with disclaimer
  *
  * SECURITY:
  * - User must be authenticated
  * - File access is validated before RAG
  * - All searches are org-scoped and permission-filtered
+ * - Internal and external content are NEVER mixed silently
+ * - External content is NEVER persisted to database
  */
 
 import { streamText, generateId } from "ai";
@@ -24,9 +36,9 @@ import { getCurrentUser, getCurrentOrganization, AuthenticationError } from "@/l
 import { PermissionError } from "@/lib/permissions";
 import {
   validateFileAccess,
-  retrieveContext,
-  buildChatPrompt,
-} from "@/lib/ai/chat-service";
+  retrieveExtendedContext,
+  buildExtendedChatPrompt,
+} from "@/lib/ai/chat-service-extended";
 import type { ChatMessage } from "@/lib/ai/chat-types";
 
 // Set maximum duration for streaming
@@ -91,23 +103,33 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. Retrieve RAG context with mode-aware selection
-    // If fileIds provided: search ONLY within those files (explicit_files mode)
-    // If no fileIds: search ALL accessible documents (automatic_search mode)
-    const contextResult = await retrieveContext(
+    // 4. Retrieve extended RAG context with decision tree
+    // Decision tree:
+    // - If fileIds provided: search ONLY those files (no external fallback)
+    // - If no fileIds: search all documents, then external web if needed
+    const contextResult = await retrieveExtendedContext(
       user.id,
       organization.id,
       query,
       fileIds
     );
 
-    // 5. Build prompts based on context availability
-    // - Document context found → answer from documents
-    // - No context found → fallback to general knowledge with disclaimer
-    const { systemPrompt, userPrompt, hasDocumentContext, mode } = buildChatPrompt(contextResult, normalized);
+    // 5. Build prompts based on extended context result
+    // - Internal context found → "Based on your documents..."
+    // - External context found → "I couldn't find this in your documents, but online..."
+    // - No context → General knowledge with disclaimer
+    const {
+      systemPrompt,
+      userPrompt,
+      mode,
+      hasInternalContext,
+      hasExternalContext,
+    } = buildExtendedChatPrompt(contextResult, normalized);
 
     // Log context mode for debugging
-    console.log(`[AI Chat] Mode: ${mode}, Has context: ${hasDocumentContext}, Query: "${query.substring(0, 50)}..."`);
+    console.log(
+      `[AI Chat] Mode: ${mode}, Internal: ${hasInternalContext}, External: ${hasExternalContext}, Query: "${query.substring(0, 50)}..."`
+    );
 
     // 6. Stream response from Gemini 2.5 Flash (UI message stream for useChat)
     const result = streamText({

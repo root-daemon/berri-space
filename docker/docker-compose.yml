@@ -1,0 +1,50 @@
+services:
+  # SearXNG - Meta search engine for web search
+  # Internal use only - bound to localhost
+  searxng:
+    image: searxng/searxng:latest
+    container_name: berri-searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8080"  # Internal only - NOT exposed to public
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+      - SEARXNG_SECRET=berri-searxng-internal-secret-key-change-in-production
+    networks:
+      - berri-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Crawlee - Web content extraction service
+  # Internal use only - bound to localhost
+  crawlee:
+    build:
+      context: ./crawlee
+      dockerfile: Dockerfile
+    container_name: berri-crawlee
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8889:8889"  # Internal only - NOT exposed to public
+    environment:
+      - PORT=8889
+      - MAX_CONTENT_LENGTH=1048576  # 1MB
+      - REQUEST_TIMEOUT=30000  # 30s
+    networks:
+      - berri-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8889/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  berri-internal:
+    driver: bridge
+    internal: false  # Allow internet access for crawling
