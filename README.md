@@ -56,6 +56,57 @@ These choices are **locked** and must not change unless explicitly requested.
 
 ---
 
+## Docker (Internal Services)
+
+This repo includes a small Docker Compose stack under `docker/` for **internal-only** services used by the app’s AI / external-search tooling.
+
+### Services
+
+#### SearXNG (meta search engine)
+
+- **Purpose**: Local meta-search service used to perform web searches via multiple engines.
+- **Container**: `berri-searxng` (`searxng/searxng:latest`)
+- **Bind**: `127.0.0.1:8888` → container `8080` (not exposed publicly)
+- **Health**: `GET http://localhost:8888/healthz`
+- **Config**: `docker/searxng/settings.yml` (mounted read-only)
+- **Note**: `SEARXNG_SECRET` / `server.secret_key` are currently set to a dev value and must be changed for real deployments.
+
+#### Crawlee (web content extraction)
+
+- **Purpose**: Internal web page fetch + extraction for JS-rendered pages using **Playwright**. Returns extracted text suitable for downstream processing.
+- **Container**: `berri-crawlee` (built from `docker/crawlee/Dockerfile`)
+- **Bind**: `127.0.0.1:8889` → container `8889` (not exposed publicly)
+- **Health**: `GET http://localhost:8889/health`
+- **API**:
+  - `POST http://localhost:8889/crawl` with `{ "url": "https://example.com", "extract_main_content": true }`
+  - `POST http://localhost:8889/crawl/batch` with `{ "urls": ["https://a.com", "https://b.com"], "extract_main_content": true }` (max 10 URLs)
+- **Security**:
+  - Blocks crawling **localhost/private/reserved** IPs (basic SSRF protection)
+  - Enforces **1MB** max content (`MAX_CONTENT_LENGTH`)
+  - Enforces request timeout (`REQUEST_TIMEOUT`, default 30s)
+
+### Running the Docker stack
+
+From the repo root:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d
+```
+
+To stop:
+
+```bash
+docker compose -f docker/docker-compose.yml down
+```
+
+To view logs:
+
+```bash
+docker compose -f docker/docker-compose.yml logs -f --tail=200
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -108,6 +159,7 @@ berri-space/
 │   └── teams/                    # Team actions
 ├── supabase/
 │   └── migrations/               # Schema, RLS, functions (e.g. get_effective_role, search_similar_chunks)
+├── docker/                       # Internal dockerized services (SearXNG + Crawlee)
 ├── docs/
 │   ├── schema.md                 # Database schema
 │   └── rls-policies.md           # RLS policies
