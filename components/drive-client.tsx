@@ -8,7 +8,7 @@ import { AIAssistantPanel } from '@/components/ai-assistant-panel';
 import { CreateFolderDialog } from '@/components/create-folder-dialog';
 import { FileUploadDialog } from '@/components/file-upload-dialog';
 import { Button } from '@/components/ui/button';
-import { MessageCircle, FolderPlus, Upload } from 'lucide-react';
+import { ClockIcon, FolderPlus, Upload } from 'lucide-react';
 import type { FolderWithAccess } from '@/lib/folders';
 import type { FileWithAccess } from '@/lib/files';
 import type { DbTeam } from '@/lib/supabase/types';
@@ -98,7 +98,7 @@ export function DriveClient({
                 onClick={() => setShowAI(true)}
                 className="bg-primary hover:bg-primary/90 gap-2 transition-all duration-200 shadow-md hover:shadow-lg font-400"
               >
-                <MessageCircle className="w-4 h-4" />
+                <ClockIcon className="w-4 h-4" />
                 Ask AI
               </Button>
             </div>
